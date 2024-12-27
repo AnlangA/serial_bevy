@@ -1,13 +1,15 @@
 pub mod port;
-use bevy::prelude::{Component, Plugin};
+pub mod data;
+
+use bevy::prelude::*;
 use port::Serial;
-
-
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::sync::Mutex;
 
 /// serial ports
 #[derive(Component)]
 pub struct Serials {
-    pub serial: Vec<Serial>,
+    pub serial: Vec<Mutex<Serial>>,
 }
 
 /// serial ports implementation
@@ -21,7 +23,7 @@ impl Serials {
 
     /// add serial port
     pub fn add(&mut self, serial: Serial) {
-        self.serial.push(serial);
+        self.serial.push(Mutex::new(serial));
     }
 
     /// remove serial port
@@ -30,7 +32,22 @@ impl Serials {
     }
 
     /// get serial port
-    pub fn get(&self, index: usize) -> &Serial {
+    pub fn get(&self, index: usize) -> &Mutex<Serial> {
         &self.serial[index]
     }
+}
+
+#[derive(Default)]
+pub struct SerialPlugin;
+
+impl Plugin for SerialPlugin {
+    fn build(&self, app: &mut App) {
+        app.insert_resource(data::SerialChannel::default())
+        .add_systems(Startup, init);
+    }
+}
+
+/// serial components initialization
+fn init(mut commands: Commands) {
+    commands.spawn(Serials::new());
 }

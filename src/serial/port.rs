@@ -1,7 +1,7 @@
 use tokio::time::Duration;
-use std::fs::File;
+use tokio::task::JoinHandle;
 pub use tokio_serial::{
-    DataBits, FlowControl, Parity, SerialPort, StopBits,
+    DataBits, FlowControl, Parity, SerialPort, StopBits, SerialStream,
 };
 
 /// serial port baud rate
@@ -13,6 +13,8 @@ pub const COMMON_BAUD_RATES: &[u32] = &[
 pub struct Serial{
     set: PortSettings,
     data: PortData,
+    stream: Option<SerialStream>,
+    thread_handle: Option<JoinHandle<()>>,
 }
 
 /// serial port implementation
@@ -22,6 +24,8 @@ impl Serial {
         Serial {
             set: PortSettings::new(),
             data: PortData::new(),
+            stream: None,
+            thread_handle: None,
         }
     }
 
@@ -34,6 +38,27 @@ impl Serial {
     pub fn data(&self) -> &PortData {
         &self.data
     }
+
+    /// get stream
+    pub fn stream(&self) -> &Option<SerialStream> {
+        &self.stream
+    }
+
+    /// set stream
+    pub fn set_stream(&mut self, stream: SerialStream) {
+        self.stream = Some(stream);
+    }
+
+    /// get thread handle
+    pub fn thread_handle(&self) -> &Option<JoinHandle<()>> {
+        &self.thread_handle
+    }
+
+    /// set thread handle
+    pub fn set_thread_handle(&mut self, handle: JoinHandle<()>) {
+        self.thread_handle = Some(handle);
+    }
+
 }
 
 /// serial port settings
@@ -267,7 +292,7 @@ pub enum PortChannelData {
     /// read data from serial port
     PortRead(PorRWData),
     /// close serial port
-    PortClose,
+    PortClose(String),
     /// error
     PortError(PorRWData),
 }
