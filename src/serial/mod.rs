@@ -6,13 +6,17 @@ use port::*;
 use std::sync::Mutex;
 use data::SerialChannel;
 use tokio_serial::available_ports;
-use std::sync::Once;
-use std::sync::OnceLock;
+use std::sync::Arc;
 use log::info;
+use std::sync::OnceLock;
 
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-static INIT: Once = Once::new();
 
+fn get_runtime() -> &'static tokio::runtime::Runtime {
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Runtime::new().unwrap()
+    })
+}
 
 /// serial ports
 #[derive(Component)]
@@ -64,8 +68,7 @@ fn init(mut commands: Commands) {
 /// serach serial port's name
 fn spawn_serach_name(channel: Res<SerialChannel>) {
     let tx = channel.tx_serial2_world.clone();
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let _ = rt.spawn(async move {
+    get_runtime().spawn(async move {
         loop {
             let port_names: Vec<String> = match available_ports() {
                 Ok(ports) => ports.into_iter().map(|p| p.port_name).collect(),
@@ -74,19 +77,11 @@ fn spawn_serach_name(channel: Res<SerialChannel>) {
                     Vec::<String>::new()
                 }
             };
+            println!("names: {:?}", port_names);
             let _ = tx.send(PortChannelData::PortName(port_names.clone()));
             tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         }
     });
-}
-
-/// get runtime
-fn get_runtime() -> &'static tokio::runtime::Runtime {
-    INIT.call_once(|| {
-        RUNTIME.set(tokio::runtime::Runtime::new().unwrap())
-            .expect("Failed to initialize runtime");
-    });
-    RUNTIME.get().unwrap()
 }
 
 /// update serial port's name
@@ -94,24 +89,21 @@ fn update_serial_port_name(channel: Res<SerialChannel>, mut serials: Query<&mut 
     let mut rx = channel.tx_serial2_world.subscribe();
     let mut serials = serials.single_mut();
     
-    let names: Vec<String> = get_runtime()
-        .block_on(rx.recv())
-        .unwrap_or(PortChannelData::PortName(Vec::new()))
-        .into();
+    if let Ok(names) = rx.try_recv() {
+        let port_names: Vec<String> = names.into();
+        
+        serials.serial.retain(|port| {
+            port_names.iter().any(|name| port.lock().unwrap().set.port_name == *name)
+        });
 
-    println!("names: {:?}", names);
-
-    serials.serial.retain(|port|
-        names.contains(&port.lock().unwrap().set.port_name)
-    );
-
-    for name in names {
-        if !serials.serial.iter().any(|port| 
-            port.lock().unwrap().set.port_name == name
-        ) {
-            let mut serial = Serial::new();
-            serial.set.port_name = name;
-            serials.add(serial);
+        for name in port_names.iter() {
+            if !serials.serial.iter().any(|port| 
+                port.lock().unwrap().set.port_name == *name
+            ) {
+                let mut serial = Serial::new();
+                serial.set.port_name = name.clone();
+                serials.add(serial);
+            }
         }
     }
 }
