@@ -1,1 +1,1 @@
-mod serial;
+pub mod serial;

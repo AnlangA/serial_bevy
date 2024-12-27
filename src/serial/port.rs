@@ -1,5 +1,6 @@
 use tokio::time::Duration;
 use tokio::task::JoinHandle;
+use tokio::fs::File;
 pub use tokio_serial::{
     DataBits, FlowControl, Parity, SerialPort, StopBits, SerialStream,
 };
@@ -11,7 +12,7 @@ pub const COMMON_BAUD_RATES: &[u32] = &[
 
 /// serial port
 pub struct Serial{
-    set: PortSettings,
+    pub set: PortSettings,
     data: PortData,
     stream: Option<SerialStream>,
     thread_handle: Option<JoinHandle<()>>,
@@ -295,4 +296,14 @@ pub enum PortChannelData {
     PortClose(String),
     /// error
     PortError(PorRWData),
+}
+
+/// convert PortChannelData to Vec<String>
+impl Into<Vec<String>> for PortChannelData {
+    fn into(self) -> Vec<String> {
+        match self {
+            PortChannelData::PortName(names) => names,
+            _ => Vec::new(),
+        }
+    }
 }
