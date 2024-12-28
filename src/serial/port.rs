@@ -42,8 +42,8 @@ impl Serial {
     }
 
     /// get port data
-    pub fn data(&self) -> &PortData {
-        &self.data
+    pub fn data(&mut self) -> &mut PortData {
+        &mut self.data
     }
 
     /// get stream
@@ -72,8 +72,8 @@ impl Serial {
     }
 
     /// get rx channel
-    pub fn rx_channel(&self) -> &Option<broadcast::Receiver<PortChannelData>> {
-        &self.rx_channel
+    pub fn rx_channel(&mut self) -> &mut Option<broadcast::Receiver<PortChannelData>> {
+        &mut self.rx_channel
     }
 
     /// set tx channel
@@ -259,6 +259,12 @@ impl PortData {
     /// add send data
     pub fn send_data(&mut self, data: String) {
         self.send_data.push(data);
+        self.state = State::Busy;
+    }
+
+    /// clear send data
+    pub fn clear_send_data(&mut self) {
+        self.send_data.clear();
     }
 
     /// set state
@@ -297,6 +303,10 @@ pub enum State {
     Open,
     /// serial port is close
     Close,
+    /// serial port is busy
+    Busy,
+    /// serial port is ready
+    Ready,
     /// serial port is error
     Error,
 }
@@ -332,14 +342,16 @@ pub struct PorRWData {
 pub enum PortChannelData {
     /// get all available serial ports
     PortName(Vec<String>),
-    /// open serial port
-    PortOpen(super::port::PortSettings),
     /// write data to serial port
     PortWrite(PorRWData),
     /// read data from serial port
     PortRead(PorRWData),
+    /// open serial port
+    PortOpen,
     /// close serial port
     PortClose(String),
+    /// serial state
+    PortState(State),
     /// error
     PortError(PorRWData),
 }

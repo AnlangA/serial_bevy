@@ -7,14 +7,23 @@ use log::info;
 use port::*;
 use std::fmt::Debug;
 use std::sync::Mutex;
-use std::sync::OnceLock;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::broadcast;
 use tokio_serial::available_ports;
-static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
-pub fn get_runtime() -> &'static tokio::runtime::Runtime {
-    RUNTIME.get_or_init(|| tokio::runtime::Runtime::new().unwrap())
+/// runtime
+#[derive(Resource)]
+pub struct Runtime {
+    rt: tokio::runtime::Runtime,
+}
+
+/// runtime implementation
+impl Runtime {
+    pub fn init() -> Self {
+        Self {
+            rt: tokio::runtime::Runtime::new().unwrap(),
+        }
+    }
 }
 
 /// serial ports
@@ -87,9 +96,17 @@ pub struct SerialPlugin;
 
 impl Plugin for SerialPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(SerialNameChannel::init())
+        app.insert_resource(Runtime::init())
+            .insert_resource(SerialNameChannel::init())
             .add_systems(Startup, (init, spawn_serach_name))
-            .add_systems(Update, (update_serial_port_name, create_serial_port_thread));
+            .add_systems(
+                Update,
+                (
+                    update_serial_port_name,
+                    create_serial_port_thread,
+                    update_serial_port_state,
+                ),
+            );
     }
 }
 
@@ -99,9 +116,9 @@ fn init(mut commands: Commands) {
 }
 
 /// serach serial port's name
-fn spawn_serach_name(channel: Res<SerialNameChannel>) {
+fn spawn_serach_name(channel: Res<SerialNameChannel>, runtime: Res<Runtime>) {
     let tx = channel.tx_world2_serial.clone();
-    get_runtime().spawn(async move {
+    runtime.rt.spawn(async move {
         loop {
             let port_names: Vec<String> = match available_ports() {
                 Ok(ports) => ports.into_iter().map(|p| p.port_name).collect(),
@@ -155,43 +172,93 @@ fn update_serial_port_name(
 }
 
 /// create serial port thread
-fn create_serial_port_thread(mut serials: Query<&mut Serials>) {
+fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runtime>) {
     let mut serials = serials.single_mut();
     for serial in serials.serial.iter_mut() {
         let mut serial = serial.lock().unwrap();
-        if serial.data().state().to_owned() == port::State::Open {
-            // create thread
-            if serial.thread_handle().is_none() {
-                let (tx, mut rx) = broadcast::channel(100);
-                let (tx1, rx1) = broadcast::channel(100);
 
-                serial.set_tx_channel(tx);
-                serial.set_rx_channel(rx1);
-                let port_settings = serial.set.clone();
-                let handle = get_runtime().spawn(async move {
-                    let port = open_port(port_settings).await.unwrap();
-                    let (mut read, mut write) = io::split(port);
+        // create thread
+        if serial.thread_handle().is_none() {
+            let (tx, mut rx) = broadcast::channel(100);
+            let (tx1, rx1) = broadcast::channel(100);
 
-                    tokio::spawn(async move {
-                        while let Ok(data) = rx.recv().await {
-                            if let PortChannelData::PortWrite(data) = data {
-                                write.write(&data.data).await.unwrap();
+            serial.set_tx_channel(tx);
+            serial.set_rx_channel(rx1);
+            let port_settings = serial.set.clone();
+
+            let handle = runtime.rt.spawn(async move {
+                let port = loop {
+                    if let Ok(data) = rx.recv().await {
+                        match data {
+                            PortChannelData::PortOpen => {
+                                break open_port(port_settings).await.unwrap();
                             }
+                            _ => {}
                         }
-                    });
+                    }
+                };
+                tx1.send(PortChannelData::PortState(port::State::Open))
+                    .unwrap();
 
-                    tokio::spawn(async move {
-                        let mut buffer: [u8; 1024] = [0; 1024];
-                        while let Ok(n) = read.read(&mut buffer).await {
-                            let data = PorRWData {
-                                data: buffer[..n].to_vec(),
-                            };
-                            tx1.send(PortChannelData::PortRead(data)).unwrap();
+                let (mut read, mut write) = io::split(port);
+
+                loop {
+                    if let Ok(data) = rx.recv().await {
+                        match data {
+                            PortChannelData::PortWrite(data) => {
+                                write.write(&data.data).await.unwrap();
+
+                                // send ready state
+                                tx1.send(PortChannelData::PortState(port::State::Ready))
+                                    .unwrap();
+                            }
+                            PortChannelData::PortClose(name) => {
+                                info!("close serial port: {}", name);
+                                tx1.send(PortChannelData::PortState(port::State::Close))
+                                    .unwrap();
+                                break;
+                            }
+                            _ => {}
                         }
-                    });
-                });
+                    }
+                    let mut buffer: [u8; 1024] = [0; 1024];
+                    if let Ok(n) = read.read(&mut buffer).await {
+                        let data = PorRWData {
+                            data: buffer[..n].to_vec(),
+                        };
+                        tx1.send(PortChannelData::PortRead(data)).unwrap();
+                    }
+                }
+            });
 
-                serial.set_thread_handle(handle);
+            serial.set_thread_handle(handle);
+        }
+    }
+}
+
+fn update_serial_port_state(mut serials: Query<&mut Serials>) {
+    let mut serials = serials.single_mut();
+    for serial in serials.serial.iter_mut() {
+        let mut serial = serial.lock().unwrap();
+        if let Some(rx) = serial.rx_channel().as_mut() {
+            if let Ok(data) = rx.try_recv() {
+                match data {
+                    PortChannelData::PortState(data) => match data {
+                        port::State::Open => {
+                            serial.data().set_state(port::State::Open);
+                        }
+                        port::State::Ready => {
+                            serial.data().set_state(port::State::Ready);
+                            serial.data().clear_send_data();
+                        }
+                        port::State::Close => {
+                            serial.data().set_state(port::State::Close);
+                            serial.data().clear_send_data();
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
             }
         }
     }
