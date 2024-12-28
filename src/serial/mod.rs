@@ -8,9 +8,9 @@ use port::*;
 use std::fmt::Debug;
 use std::sync::Mutex;
 use std::sync::OnceLock;
-use tokio_serial::available_ports;
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::broadcast;
-use tokio::io::{self,AsyncReadExt, AsyncWriteExt};
+use tokio_serial::available_ports;
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
 pub fn get_runtime() -> &'static tokio::runtime::Runtime {
@@ -122,7 +122,10 @@ fn spawn_serach_name(channel: Res<SerialNameChannel>) {
 }
 
 /// update serial port's name
-fn update_serial_port_name(mut channel: ResMut<SerialNameChannel>, mut serials: Query<&mut Serials>) {
+fn update_serial_port_name(
+    mut channel: ResMut<SerialNameChannel>,
+    mut serials: Query<&mut Serials>,
+) {
     let mut serials = serials.single_mut();
 
     match channel.rx_serial2_world.try_recv() {
@@ -157,7 +160,6 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>) {
     for serial in serials.serial.iter_mut() {
         let mut serial = serial.lock().unwrap();
         if serial.data().state().to_owned() == port::State::Open {
-            
             // create thread
             if serial.thread_handle().is_none() {
                 let (tx, mut rx) = broadcast::channel(100);
@@ -167,9 +169,8 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>) {
                 serial.set_rx_channel(rx1);
                 let port_settings = serial.set.clone();
                 let handle = get_runtime().spawn(async move {
-
                     let port = open_port(port_settings).await.unwrap();
-                    let (mut read ,mut write) = io::split(port);
+                    let (mut read, mut write) = io::split(port);
 
                     tokio::spawn(async move {
                         while let Ok(data) = rx.recv().await {
@@ -183,7 +184,7 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>) {
                         let mut buffer: [u8; 1024] = [0; 1024];
                         while let Ok(n) = read.read(&mut buffer).await {
                             let data = PorRWData {
-                                data: buffer[..n].to_vec()
+                                data: buffer[..n].to_vec(),
                             };
                             tx1.send(PortChannelData::PortRead(data)).unwrap();
                         }

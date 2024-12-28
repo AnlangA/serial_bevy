@@ -1,10 +1,10 @@
+use log::{error, info};
 use tokio::fs::File;
+use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
-use tokio::sync::broadcast;
-pub use tokio_serial::{DataBits, FlowControl, Parity, SerialPort, SerialStream, StopBits};
 use tokio_serial::SerialPortBuilderExt;
-use log::{info, error};
+pub use tokio_serial::{DataBits, FlowControl, Parity, SerialPort, SerialStream, StopBits};
 
 /// serial port baud rate
 pub const COMMON_BAUD_RATES: &[u32] = &[
@@ -168,7 +168,6 @@ impl PortSettings {
     pub fn flow_control_name(&self) -> String {
         format!("{}", self.flow_control)
     }
-
 }
 
 /// open serial port
