@@ -1,21 +1,19 @@
-pub mod port;
 pub mod data;
+pub mod port;
 
 use bevy::prelude::*;
+use data::SerialChannel;
+use log::info;
 use port::*;
 use std::sync::Mutex;
-use data::SerialChannel;
-use tokio_serial::available_ports;
-use std::sync::Arc;
-use log::info;
 use std::sync::OnceLock;
+use tokio::sync::broadcast;
+use tokio_serial::available_ports;
 
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
-fn get_runtime() -> &'static tokio::runtime::Runtime {
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Runtime::new().unwrap()
-    })
+pub fn get_runtime() -> &'static tokio::runtime::Runtime {
+    RUNTIME.get_or_init(|| tokio::runtime::Runtime::new().unwrap())
 }
 
 /// serial ports
@@ -28,9 +26,7 @@ pub struct Serials {
 impl Serials {
     /// serial ports initialization
     pub fn new() -> Self {
-        Serials {
-            serial: vec![],
-        }
+        Serials { serial: vec![] }
     }
 
     /// add serial port
@@ -54,9 +50,9 @@ pub struct SerialPlugin;
 
 impl Plugin for SerialPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(data::SerialChannel::default())
-        .add_systems(Startup, (init, spawn_serach_name))
-        .add_systems(Update, update_serial_port_name);
+        app.insert_resource(SerialChannel::init())
+            .add_systems(Startup, (init, spawn_serach_name))
+            .add_systems(Update, update_serial_port_name);
     }
 }
 
@@ -67,7 +63,7 @@ fn init(mut commands: Commands) {
 
 /// serach serial port's name
 fn spawn_serach_name(channel: Res<SerialChannel>) {
-    let tx = channel.tx_serial2_world.clone();
+    let tx = channel.tx_world2_serial.clone();
     get_runtime().spawn(async move {
         loop {
             let port_names: Vec<String> = match available_ports() {
@@ -77,33 +73,46 @@ fn spawn_serach_name(channel: Res<SerialChannel>) {
                     Vec::<String>::new()
                 }
             };
-            println!("names: {:?}", port_names);
-            let _ = tx.send(PortChannelData::PortName(port_names.clone()));
-            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+            match tx.send(PortChannelData::PortName(port_names.clone())) {
+                Ok(_) => {
+
+                }
+                Err(e) => {
+                    println!("error: {:?}", e);
+                }
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
         }
     });
 }
 
 /// update serial port's name
-fn update_serial_port_name(channel: Res<SerialChannel>, mut serials: Query<&mut Serials>) {
-    let mut rx = channel.tx_serial2_world.subscribe();
+fn update_serial_port_name(mut channel: ResMut<SerialChannel>, mut serials: Query<&mut Serials>) {
     let mut serials = serials.single_mut();
-    
-    if let Ok(names) = rx.try_recv() {
-        let port_names: Vec<String> = names.into();
-        
-        serials.serial.retain(|port| {
-            port_names.iter().any(|name| port.lock().unwrap().set.port_name == *name)
-        });
 
-        for name in port_names.iter() {
-            if !serials.serial.iter().any(|port| 
-                port.lock().unwrap().set.port_name == *name
-            ) {
-                let mut serial = Serial::new();
-                serial.set.port_name = name.clone();
-                serials.add(serial);
+    match channel.rx_serial2_world.try_recv() {
+        Ok(names) => {
+            println!("names: {:?}", names);
+            let port_names: Vec<String> = names.into();
+
+            serials.serial.retain(|port| {
+                port_names
+                    .iter()
+                    .any(|name| port.lock().unwrap().set.port_name == *name)
+            });
+
+            for name in port_names.iter() {
+                if !serials
+                    .serial
+                    .iter()
+                    .any(|port| port.lock().unwrap().set.port_name == *name)
+                {
+                    let mut serial = Serial::new();
+                    serial.set.port_name = name.clone();
+                    serials.add(serial);
+                }
             }
         }
+        Err(_) => {}
     }
 }

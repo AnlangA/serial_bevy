@@ -1,17 +1,16 @@
-use tokio::time::Duration;
-use tokio::task::JoinHandle;
 use tokio::fs::File;
-pub use tokio_serial::{
-    DataBits, FlowControl, Parity, SerialPort, StopBits, SerialStream,
-};
+use tokio::task::JoinHandle;
+use tokio::time::Duration;
+pub use tokio_serial::{DataBits, FlowControl, Parity, SerialPort, SerialStream, StopBits};
 
 /// serial port baud rate
 pub const COMMON_BAUD_RATES: &[u32] = &[
-    4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000, 921600, 1000000, 1500000, 2000000,
+    4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000, 921600, 1000000,
+    1500000, 2000000,
 ];
 
 /// serial port
-pub struct Serial{
+pub struct Serial {
     pub set: PortSettings,
     data: PortData,
     stream: Option<SerialStream>,
@@ -59,7 +58,6 @@ impl Serial {
     pub fn set_thread_handle(&mut self, handle: JoinHandle<()>) {
         self.thread_handle = Some(handle);
     }
-
 }
 
 /// serial port settings
@@ -177,7 +175,7 @@ impl PortData {
                 index: 0,
                 file: vec![file],
             });
-        }else {
+        } else {
             self.receive_file.as_mut().unwrap().file.push(file);
             self.receive_file.as_mut().unwrap().index += 1;
         }
@@ -196,7 +194,7 @@ impl PortData {
                 index: 0,
                 file: vec![file],
             });
-        }else {
+        } else {
             self.parse_file.as_mut().unwrap().file.push(file);
             self.parse_file.as_mut().unwrap().index += 1;
         }
@@ -207,7 +205,7 @@ impl PortData {
     pub fn parse_file_index(&self) -> usize {
         self.parse_file.as_ref().unwrap().index
     }
-    
+
     /// add send data
     pub fn send_data(&mut self, data: String) {
         self.send_data.push(data);
@@ -243,7 +241,7 @@ struct FileData {
 }
 
 /// serial port state
-#[derive(Clone,Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
     /// serial port is open
     Open,
@@ -254,9 +252,9 @@ pub enum State {
 }
 
 /// serial port data type
-#[derive(Clone,Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Type {
-    /// binary data 
+    /// binary data
     Binary,
     /// hex data
     Hex,
