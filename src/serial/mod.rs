@@ -191,14 +191,14 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runt
                     if let Ok(data) = rx.recv().await {
                         match data {
                             PortChannelData::PortOpen => {
+                                tx1.send(PortChannelData::PortState(port::State::Open))
+                                    .unwrap();
                                 break open_port(port_settings).await.unwrap();
                             }
                             _ => {}
                         }
                     }
                 };
-                tx1.send(PortChannelData::PortState(port::State::Open))
-                    .unwrap();
 
                 let (mut read, mut write) = io::split(port);
 
