@@ -106,6 +106,7 @@ impl Plugin for SerialPlugin {
                     create_serial_port_thread,
                     update_serial_port_state,
                     send_serial_data,
+                    receive_serial_data,
                 ).chain(),
             );
     }
@@ -208,7 +209,7 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runt
                         match data {
                             PortChannelData::PortWrite(data) => {
                                 write.write(&data.data).await.unwrap();
-
+                                info!("发送数据成功: {:?}", data.data);
                                 // send ready state
                                 tx1.send(PortChannelData::PortState(port::State::Ready))
                                     .unwrap();
@@ -272,14 +273,39 @@ fn send_serial_data(mut serials: Query<&mut Serials>) {
 
         //将数据转换成对于的格式
         let data = serial.data().get_send_data();
+        if data.is_empty() {
+            continue;
+        }
+        info!("准备发送数据: {:?}", data);
         //将数据转换成u8，后续按 `port::Type` 进行转换
         let data = data.iter().flat_map(|d| d.as_bytes().iter().copied()).collect::<Vec<u8>>();
         
         let state = serial.data().state().to_owned();
-        if state== port::State::Ready {
+        if state == port::State::Ready {
             if let Some(tx) = serial.tx_channel() {
                 tx.send(PortChannelData::PortWrite(PorRWData { data })).unwrap();
                 serial.data().set_state(port::State::Busy);
+                info!("设置busy");
+            }
+        }
+    }
+}
+
+/// receive serial data
+fn receive_serial_data(mut serials: Query<&mut Serials>) {
+    let mut serials = serials.single_mut();
+    for serial in serials.serial.iter_mut() {
+        let mut serial = serial.lock().unwrap();
+        if let Some(rx) = serial.rx_channel() {
+            if let Ok(data) = rx.try_recv() {
+                match data {
+                    PortChannelData::PortRead(data) => {
+                        let data = data.data;
+                        let data_str = String::from_utf8_lossy(&data).to_string();
+                        info!("接收到数据: {}", data_str);
+                    }
+                    _ => {}
+                }
             }
         }
     }
