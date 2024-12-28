@@ -1,7 +1,10 @@
 use tokio::fs::File;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
+use tokio::sync::broadcast;
 pub use tokio_serial::{DataBits, FlowControl, Parity, SerialPort, SerialStream, StopBits};
+use tokio_serial::SerialPortBuilderExt;
+use log::{info, error};
 
 /// serial port baud rate
 pub const COMMON_BAUD_RATES: &[u32] = &[
@@ -15,6 +18,8 @@ pub struct Serial {
     data: PortData,
     stream: Option<SerialStream>,
     thread_handle: Option<JoinHandle<()>>,
+    tx_channel: Option<broadcast::Sender<PortChannelData>>,
+    rx_channel: Option<broadcast::Receiver<PortChannelData>>,
 }
 
 /// serial port implementation
@@ -26,6 +31,8 @@ impl Serial {
             data: PortData::new(),
             stream: None,
             thread_handle: None,
+            tx_channel: None,
+            rx_channel: None,
         }
     }
 
@@ -57,6 +64,26 @@ impl Serial {
     /// set thread handle
     pub fn set_thread_handle(&mut self, handle: JoinHandle<()>) {
         self.thread_handle = Some(handle);
+    }
+
+    /// get tx channel
+    pub fn tx_channel(&self) -> &Option<broadcast::Sender<PortChannelData>> {
+        &self.tx_channel
+    }
+
+    /// get rx channel
+    pub fn rx_channel(&self) -> &Option<broadcast::Receiver<PortChannelData>> {
+        &self.rx_channel
+    }
+
+    /// set tx channel
+    pub fn set_tx_channel(&mut self, channel: broadcast::Sender<PortChannelData>) {
+        self.tx_channel = Some(channel);
+    }
+
+    /// set rx channel
+    pub fn set_rx_channel(&mut self, channel: broadcast::Receiver<PortChannelData>) {
+        self.rx_channel = Some(channel);
     }
 }
 
@@ -140,6 +167,30 @@ impl PortSettings {
     /// get serial port flow control name
     pub fn flow_control_name(&self) -> String {
         format!("{}", self.flow_control)
+    }
+
+}
+
+/// open serial port
+pub async fn open_port(mut port_data: PortSettings) -> Option<SerialStream> {
+    let mut port_settings = PortSettings::new();
+    port_settings.config(&mut port_data);
+    match tokio_serial::new(port_settings.port_name, port_settings.baud_rate)
+        .data_bits(port_data.data_bits)
+        .parity(port_data.parity)
+        .stop_bits(port_data.stop_bits)
+        .flow_control(port_data.flow_control)
+        .timeout(port_data.timeout)
+        .open_native_async()
+    {
+        Ok(stream) => {
+            info!("成功打开串口: {}", port_data.port_name);
+            Some(stream)
+        }
+        Err(e) => {
+            error!("无法打开串口 {}: {}", port_data.port_name, e);
+            None
+        }
     }
 }
 
@@ -273,10 +324,8 @@ pub enum Type {
 /// serial port write and read data, used to communicate with different threads
 #[derive(Clone, Debug)]
 pub struct PorRWData {
-    /// serial port name
-    pub port_name: String,
     /// data
-    pub data: String,
+    pub data: Vec<u8>,
 }
 
 /// serial port data, used to communicate with different threads
