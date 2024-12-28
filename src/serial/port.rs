@@ -262,6 +262,13 @@ impl PortData {
         self.state = State::Busy;
     }
 
+    /// get send data
+    pub fn get_send_data(&mut self) -> Vec<String> {
+        let data = self.send_data.clone();
+        self.send_data.clear();
+        data
+    }
+
     /// clear send data
     pub fn clear_send_data(&mut self) {
         self.send_data.clear();
@@ -299,14 +306,12 @@ struct FileData {
 /// serial port state
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
-    /// serial port is open
-    Open,
-    /// serial port is close
-    Close,
-    /// serial port is busy
-    Busy,
     /// serial port is ready
     Ready,
+    /// serial port is busy
+    Busy,
+    /// serial port is close
+    Close,
     /// serial port is error
     Error,
 }
