@@ -185,22 +185,19 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runt
             serial.set_tx_channel(tx);
             serial.set_rx_channel(rx1);
             let port_settings = serial.set.clone();
-
+            let port_name = port_settings.port_name.clone();
             let handle = runtime.rt.spawn(async move {
                 let port = loop {
                     if let Ok(data) = rx.recv().await {
                         match data {
                             PortChannelData::PortOpen => {
-                                info!("open serial port: {}", port_settings.port_name);
-                                tx1.send(PortChannelData::PortState(port::State::Open))
-                                    .unwrap();
                                 break open_port(port_settings).await.unwrap();
                             }
                             _ => {}
                         }
                     }
                 };
-
+                info!("open serial port: {}", port_name);
                 let (mut read, mut write) = io::split(port);
 
                 loop {
