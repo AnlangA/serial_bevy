@@ -47,43 +47,23 @@ impl Serial {
     }
 
     /// get stream
-    pub fn stream(&self) -> &Option<SerialStream> {
-        &self.stream
-    }
-
-    /// set stream
-    pub fn set_stream(&mut self, stream: SerialStream) {
-        self.stream = Some(stream);
+    pub fn stream(&mut self) -> &mut Option<SerialStream> {
+        &mut self.stream
     }
 
     /// get thread handle
-    pub fn thread_handle(&self) -> &Option<JoinHandle<()>> {
-        &self.thread_handle
-    }
-
-    /// set thread handle
-    pub fn set_thread_handle(&mut self, handle: JoinHandle<()>) {
-        self.thread_handle = Some(handle);
+    pub fn thread_handle(&mut self) -> &mut Option<JoinHandle<()>> {
+        &mut self.thread_handle
     }
 
     /// get tx channel
-    pub fn tx_channel(&self) -> &Option<broadcast::Sender<PortChannelData>> {
-        &self.tx_channel
+    pub fn tx_channel(&mut self) -> &mut Option<broadcast::Sender<PortChannelData>> {
+        &mut self.tx_channel
     }
 
     /// get rx channel
     pub fn rx_channel(&mut self) -> &mut Option<broadcast::Receiver<PortChannelData>> {
         &mut self.rx_channel
-    }
-
-    /// set tx channel
-    pub fn set_tx_channel(&mut self, channel: broadcast::Sender<PortChannelData>) {
-        self.tx_channel = Some(channel);
-    }
-
-    /// set rx channel
-    pub fn set_rx_channel(&mut self, channel: broadcast::Receiver<PortChannelData>) {
-        self.rx_channel = Some(channel);
     }
 }
 
@@ -113,6 +93,7 @@ impl PortSettings {
             timeout: Duration::from_micros(500),
         }
     }
+    
     /// serial port settings copy
     pub fn config(&mut self, port_settings: &mut PortSettings) {
         self.port_name = port_settings.port_name.clone();
@@ -259,7 +240,6 @@ impl PortData {
     /// add send data
     pub fn send_data(&mut self, data: String) {
         self.send_data.push(data);
-        self.state = State::Busy;
     }
 
     /// get send data

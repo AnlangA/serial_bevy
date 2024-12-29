@@ -184,8 +184,8 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runt
             let (tx, mut rx) = broadcast::channel(100);
             let (tx1, rx1) = broadcast::channel(100);
 
-            serial.set_tx_channel(tx);
-            serial.set_rx_channel(rx1);
+            *serial.tx_channel() = Some(tx);
+            *serial.rx_channel() = Some(rx1);
             let port_settings = serial.set.clone();
             let port_name = port_settings.port_name.clone();
             let handle = runtime.rt.spawn(async move {
@@ -206,6 +206,7 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runt
 
                 loop {
                     if let Ok(data) = rx.recv().await {
+                        info!("接收到数据: {:?}", data);
                         match data {
                             PortChannelData::PortWrite(data) => {
                                 write.write(&data.data).await.unwrap();
@@ -233,7 +234,7 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runt
                 }
             });
 
-            serial.set_thread_handle(handle);
+            *serial.thread_handle() = Some(handle);
         }
     }
 }
@@ -249,6 +250,7 @@ fn update_serial_port_state(mut serials: Query<&mut Serials>) {
                     PortChannelData::PortState(data) => match data {
                         port::State::Ready => {
                             serial.data().set_state(port::State::Ready);
+                            info!("设置ready");
                             serial.data().clear_send_data();
                         }
                         port::State::Close => {
@@ -276,7 +278,7 @@ fn send_serial_data(mut serials: Query<&mut Serials>) {
         if data.is_empty() {
             continue;
         }
-        info!("准备发送数据: {:?}", data);
+        
         //将数据转换成u8，后续按 `port::Type` 进行转换
         let data = data.iter().flat_map(|d| d.as_bytes().iter().copied()).collect::<Vec<u8>>();
         
