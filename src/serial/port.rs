@@ -1,5 +1,6 @@
 use log::{error, info};
-use tokio::fs::File;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
@@ -95,8 +96,8 @@ impl PortSettings {
     }
 
     /// serial port settings copy
-    pub fn config(&mut self, port_settings: PortSettings) {
-        self.port_name = port_settings.port_name;
+    pub fn config(&mut self, port_settings: &PortSettings) {
+        self.port_name = port_settings.port_name.clone();
         self.baud_rate = port_settings.baud_rate;
         self.data_bits = port_settings.data_bits;
         self.stop_bits = port_settings.stop_bits;
@@ -152,9 +153,9 @@ impl PortSettings {
 }
 
 /// open serial port
-pub async fn open_port(mut port_data: PortSettings) -> Option<SerialStream> {
+pub async fn open_port(port_data: PortSettings) -> Option<SerialStream> {
     let mut port_settings = PortSettings::new();
-    port_settings.config(&mut port_data);
+    port_settings.config(&port_data);
     match tokio_serial::new(port_settings.port_name, port_settings.baud_rate)
         .data_bits(port_data.data_bits)
         .parity(port_data.parity)
@@ -176,10 +177,10 @@ pub async fn open_port(mut port_data: PortSettings) -> Option<SerialStream> {
 
 /// serial port data
 pub struct PortData {
-    /// receive file
-    receive_file: Option<FileData>,
+    /// source file
+    source_file: FileData,
     /// parse file
-    parse_file: Option<FileData>,
+    parse_file: FileData,
     /// send data
     send_data: Vec<String>,
     /// serial port state
@@ -191,8 +192,8 @@ pub struct PortData {
 impl PortData {
     pub fn new() -> Self {
         PortData {
-            receive_file: None,
-            parse_file: None,
+            source_file: FileData { file: vec![] },
+            parse_file: FileData { file: vec![] },
             send_data: vec![],
             state: State::Close,
             data_type: Type::Utf8,
@@ -200,41 +201,48 @@ impl PortData {
     }
 
     /// add receive file and add it's index
-    pub fn add_receive_file(&mut self, file: File) -> usize {
-        if self.receive_file.is_none() {
-            self.receive_file = Some(FileData {
-                index: 0,
-                file: vec![file],
-            });
-        } else {
-            self.receive_file.as_mut().unwrap().file.push(file);
-            self.receive_file.as_mut().unwrap().index += 1;
-        }
-        self.receive_file.as_mut().unwrap().index
+    pub fn add_source_file(&mut self, name: String) -> usize {
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(name)
+            .unwrap();
+        self.source_file.file.push(file);
+        self.source_file.file.len()
     }
 
     /// get receive file index
-    pub fn receive_file_index(&self) -> usize {
-        self.receive_file.as_ref().unwrap().index
+    pub fn source_file_index(&self) -> usize {
+        self.source_file.file.len()
+    }
+
+    /// write data to last source file
+    pub fn write_source_file(&mut self, data: &[u8]) {
+        let mut file = self.source_file.file.last().unwrap();
+        file.write_all(data).unwrap();
+        file.write_all(b"\n").unwrap();
     }
 
     /// add parse file and add it's index
-    pub fn add_parse_file(&mut self, file: File) -> usize {
-        if self.parse_file.is_none() {
-            self.parse_file = Some(FileData {
-                index: 0,
-                file: vec![file],
-            });
-        } else {
-            self.parse_file.as_mut().unwrap().file.push(file);
-            self.parse_file.as_mut().unwrap().index += 1;
-        }
-        self.parse_file.as_mut().unwrap().index
+    pub fn add_parse_file(&mut self, name: String) -> usize {
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(name)
+            .unwrap();
+        self.parse_file.file.push(file);
+        self.parse_file.file.len()
     }
 
     /// get parse file index
     pub fn parse_file_index(&self) -> usize {
-        self.parse_file.as_ref().unwrap().index
+        self.parse_file.file.len()
+    }
+
+    /// write data to last parse file
+    pub fn write_parse_file(&mut self, data: &[u8]) {
+        let mut file = self.parse_file.file.last().unwrap();
+        file.write_all(data).unwrap();
     }
 
     /// add send data
@@ -277,8 +285,6 @@ impl PortData {
 
 /// file data
 struct FileData {
-    /// index
-    index: usize,
     /// file
     file: Vec<File>,
 }
@@ -289,8 +295,6 @@ pub enum State {
     /// serial port is ready
     Ready,
     /// serial port is busy
-    Busy,
-    /// serial port is close
     Close,
     /// serial port is error
     Error,

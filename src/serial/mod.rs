@@ -107,7 +107,8 @@ impl Plugin for SerialPlugin {
                     update_serial_port_state,
                     send_serial_data,
                     receive_serial_data,
-                ).chain(),
+                )
+                    .chain(),
             );
     }
 }
@@ -201,7 +202,8 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runt
                     }
                 };
                 info!("open serial port: {}", port_name);
-                tx1.send(PortChannelData::PortState(port::State::Ready)).unwrap();
+                tx1.send(PortChannelData::PortState(port::State::Ready))
+                    .unwrap();
 
                 let (mut read, mut write) = io::split(port);
 
@@ -210,9 +212,6 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runt
                         match data {
                             PortChannelData::PortWrite(data) => {
                                 write.write(&data.data).await.unwrap();
-                                // send ready state
-                                tx1.send(PortChannelData::PortState(port::State::Ready))
-                                    .unwrap();
                             }
                             PortChannelData::PortClose(name) => {
                                 info!("close serial port: {}", name);
@@ -264,7 +263,6 @@ fn update_serial_port_state(mut serials: Query<&mut Serials>) {
     }
 }
 
-
 /// send serial data
 fn send_serial_data(mut serials: Query<&mut Serials>) {
     let mut serials = serials.single_mut();
@@ -276,15 +274,21 @@ fn send_serial_data(mut serials: Query<&mut Serials>) {
         if data.is_empty() {
             continue;
         }
-        
+        //将要发送的数据写入文件
+
         //将数据转换成u8，后续按 `port::Type` 进行转换
-        let data = data.iter().flat_map(|d| d.as_bytes().iter().copied()).collect::<Vec<u8>>();
-        
+        let data = data
+            .iter()
+            .flat_map(|d| d.as_bytes().iter().copied())
+            .collect::<Vec<u8>>();
+
+        serial.data().write_source_file(&data);
+
         let state = serial.data().state().to_owned();
         if state == port::State::Ready {
             if let Some(tx) = serial.tx_channel() {
-                tx.send(PortChannelData::PortWrite(PorRWData { data })).unwrap();
-                serial.data().set_state(port::State::Busy);
+                tx.send(PortChannelData::PortWrite(PorRWData { data }))
+                    .unwrap();
             }
         }
     }
@@ -300,8 +304,8 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
                 match data {
                     PortChannelData::PortRead(data) => {
                         let data = data.data;
-                        let data_str = String::from_utf8_lossy(&data).to_string();
-                        info!("receive: {}", data_str);
+                        //let data_str = String::from_utf8_lossy(&data).to_string();
+                        serial.data().write_source_file(&data);
                     }
                     _ => {}
                 }
