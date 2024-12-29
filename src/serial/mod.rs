@@ -164,7 +164,7 @@ fn update_serial_port_name(
                     .any(|port| port.lock().unwrap().set.port_name == *name)
                 {
                     let mut serial = Serial::new();
-                    serial.set.port_name = name.clone();
+                    serial.set.port_name = name.to_string();
                     serials.add(serial);
                 }
             }

@@ -93,10 +93,10 @@ impl PortSettings {
             timeout: Duration::from_micros(500),
         }
     }
-    
+
     /// serial port settings copy
-    pub fn config(&mut self, port_settings: &mut PortSettings) {
-        self.port_name = port_settings.port_name.clone();
+    pub fn config(&mut self, port_settings: PortSettings) {
+        self.port_name = port_settings.port_name;
         self.baud_rate = port_settings.baud_rate;
         self.data_bits = port_settings.data_bits;
         self.stop_bits = port_settings.stop_bits;
