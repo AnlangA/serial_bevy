@@ -188,6 +188,7 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runt
             *serial.rx_channel() = Some(rx1);
             let port_settings = serial.set.clone();
             let port_name = port_settings.port_name.clone();
+
             let handle = runtime.rt.spawn(async move {
                 let port = loop {
                     if let Ok(data) = rx.recv().await {
@@ -206,11 +207,9 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runt
 
                 loop {
                     if let Ok(data) = rx.recv().await {
-                        info!("接收到数据: {:?}", data);
                         match data {
                             PortChannelData::PortWrite(data) => {
                                 write.write(&data.data).await.unwrap();
-                                info!("发送数据成功: {:?}", data.data);
                                 // send ready state
                                 tx1.send(PortChannelData::PortState(port::State::Ready))
                                     .unwrap();
@@ -250,7 +249,6 @@ fn update_serial_port_state(mut serials: Query<&mut Serials>) {
                     PortChannelData::PortState(data) => match data {
                         port::State::Ready => {
                             serial.data().set_state(port::State::Ready);
-                            info!("设置ready");
                             serial.data().clear_send_data();
                         }
                         port::State::Close => {
@@ -287,7 +285,6 @@ fn send_serial_data(mut serials: Query<&mut Serials>) {
             if let Some(tx) = serial.tx_channel() {
                 tx.send(PortChannelData::PortWrite(PorRWData { data })).unwrap();
                 serial.data().set_state(port::State::Busy);
-                info!("设置busy");
             }
         }
     }
@@ -304,7 +301,7 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
                     PortChannelData::PortRead(data) => {
                         let data = data.data;
                         let data_str = String::from_utf8_lossy(&data).to_string();
-                        info!("接收到数据: {}", data_str);
+                        info!("receive: {}", data_str);
                     }
                     _ => {}
                 }
