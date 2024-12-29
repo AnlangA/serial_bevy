@@ -26,13 +26,11 @@ fn send_serial_data(mut serials: Query<&mut Serials>, mut timer: ResMut<GameTime
     for serial in serials.serial.iter_mut() {
         let mut serial = serial.lock().unwrap();
         if serial.set.port_name == "COM3" {
-            info!("state: {:?}", serial.data().state());
             if serial.data().state().to_owned() == port::State::Close {
                 if let Some(tx) = serial.tx_channel(){
                     tx.send(port::PortChannelData::PortOpen).unwrap();
                 }
             } else {
-                info!("发送数据");
                 serial.data().send_data("你好".to_string());
             }
         }
