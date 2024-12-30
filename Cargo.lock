@@ -4257,7 +4257,6 @@ dependencies = [
  "bevy",
  "bevy_egui",
  "chrono",
- "egui",
  "env_logger",
  "hex",
  "log",
