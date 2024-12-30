@@ -300,6 +300,18 @@ pub enum State {
     Error,
 }
 
+impl State {
+    /// serial port is open
+    pub fn is_open(&self) -> bool {
+        matches!(self, State::Ready)
+    }
+
+    /// serial port is close
+    pub fn is_close(&self) -> bool {
+        matches!(self, State::Close)
+    }
+}
+
 /// serial port data type
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Type {

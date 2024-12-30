@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use serial_bevy::serial::*;
+use serial_bevy::serial_ui::*;
 use std::time::Duration;
+
 #[derive(Resource)]
 pub struct GameTimer(Timer);
 
@@ -8,6 +10,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(SerialPlugin)
+        .add_plugins(SerialUiPlugin)
         .add_systems(Startup, setup)
         .add_systems(Update, send_serial_data)
         .run();
@@ -42,7 +45,7 @@ fn send_serial_data(
                     serial.data().add_source_file(file_name);
                 }
             } else if serial.data().state().to_owned() == port::State::Ready {
-                serial.data().send_data("老婆我想你了".to_string());
+                serial.data().send_data("1234567".to_string());
             }
         }
     }
