@@ -66,6 +66,27 @@ impl Serial {
     pub fn rx_channel(&mut self) -> &mut Option<broadcast::Receiver<PortChannelData>> {
         &mut self.rx_channel
     }
+
+    /// open serial port
+    pub fn open(&mut self) {
+        self.data.state().open();
+    }
+
+    /// is serial port open
+    pub fn is_open(&mut self) -> bool {
+        self.data.state().is_open()
+    }
+
+    /// close serial port
+    pub fn close(&mut self) {
+        self.data.state().close();
+        self.thread_handle = None;
+    }
+
+    /// is serial port close
+    pub fn is_close(&mut self) -> bool {
+        self.data.state().is_close()
+    }
 }
 
 /// serial port settings
@@ -262,19 +283,14 @@ impl PortData {
         self.send_data.clear();
     }
 
-    /// set state
-    pub fn set_state(&mut self, state: State) {
-        self.state = state;
-    }
-
     /// set data type
     pub fn set_data_type(&mut self, data_type: Type) {
         self.data_type = data_type;
     }
 
     /// get state
-    pub fn state(&self) -> &State {
-        &self.state
+    pub fn state(&mut self) -> &mut State {
+        &mut self.state
     }
 
     /// get data type
@@ -309,6 +325,16 @@ impl State {
     /// serial port is close
     pub fn is_close(&self) -> bool {
         matches!(self, State::Close)
+    }
+
+    /// open serial port
+    pub fn open(&mut self) {
+        *self = State::Ready;
+    }
+
+    /// close serial port
+    pub fn close(&mut self) {
+        *self = State::Close;
     }
 }
 

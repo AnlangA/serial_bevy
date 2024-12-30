@@ -66,6 +66,7 @@ fn serial_ui(mut contexts: EguiContexts, mut serials: Query<&mut Serials>) {
                 draw_flow_control_selector(ui, &mut serial);
                 draw_parity_selector(ui, &mut serial);
             });
+            open_ui(ui, &mut serial);
         });
     }
 }
@@ -131,7 +132,7 @@ fn draw_stop_bits_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial
 /// draw flow control selector
 fn draw_flow_control_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     ui.horizontal(|ui| {
-        ui.label("流控 ");
+        ui.label("流控    ");
         egui::ComboBox::from_id_salt("流控")
             .width(60f32)
             .selected_text(serial.set.flow_control().to_string())
@@ -150,7 +151,7 @@ fn draw_flow_control_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Ser
 /// draw parity selector
 fn draw_parity_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     ui.horizontal(|ui| {
-        ui.label("校验 ");
+        ui.label("校验    ");
         egui::ComboBox::from_id_salt("校验")
             .width(60f32)
             .selected_text(serial.set.parity().to_string())
@@ -164,4 +165,26 @@ fn draw_parity_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) 
                 }
             });
     });
+}
+
+fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    if serial.is_close() {
+        if ui.button("打开").clicked() {
+            if let Some(tx) = serial.tx_channel() {
+                tx.send(port::PortChannelData::PortOpen).unwrap();
+                let time = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+                let port_name = serial.set.port_name.clone();
+                let file_name = format!("{}_{}.txt", port_name, time);
+                serial.data().add_source_file(file_name);
+            }
+        }
+    }
+    else if serial.is_open() {
+        if ui.button("关闭").clicked() {
+            let port_name = serial.set.port_name.clone();
+            if let Some(tx) = serial.tx_channel() {
+                tx.send(port::PortChannelData::PortClose(port_name)).unwrap();
+            }
+        }
+    }
 }

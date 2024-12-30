@@ -195,8 +195,18 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runt
                     if let Ok(data) = rx.recv().await {
                         match data {
                             PortChannelData::PortOpen => {
-                                break open_port(port_settings).await.unwrap();
+                                match open_port(port_settings).await {
+                                    Some(port) => {
+                                        break port;
+                                    }
+                                    None => {
+                                        tx1.send(PortChannelData::PortClose(String::from("串口打开失败"))).unwrap();
+                                        info!("open serial port error: ",);
+                                        return;
+                                    }
+                                }
                             }
+                            
                             _ => {}
                         }
                     }
@@ -230,8 +240,8 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runt
                         tx1.send(PortChannelData::PortRead(data)).unwrap();
                     }
                 }
+                info!("serial port thread exit");
             });
-
             *serial.thread_handle() = Some(handle);
         }
     }
@@ -247,11 +257,11 @@ fn update_serial_port_state(mut serials: Query<&mut Serials>) {
                 match data {
                     PortChannelData::PortState(data) => match data {
                         port::State::Ready => {
-                            serial.data().set_state(port::State::Ready);
+                            serial.open();
                             serial.data().clear_send_data();
                         }
                         port::State::Close => {
-                            serial.data().set_state(port::State::Close);
+                            serial.close();
                             serial.data().clear_send_data();
                         }
                         _ => {}
@@ -274,18 +284,17 @@ fn send_serial_data(mut serials: Query<&mut Serials>) {
         if data.is_empty() {
             continue;
         }
-        //将要发送的数据写入文件
 
         //将数据转换成u8，后续按 `port::Type` 进行转换
         let data = data
             .iter()
             .flat_map(|d| d.as_bytes().iter().copied())
             .collect::<Vec<u8>>();
+        let mut file_data = String::from("Write:").as_bytes().to_vec(); 
+        file_data.append(&mut data.clone());
+        serial.data().write_source_file(&file_data);
 
-        serial.data().write_source_file(&data);
-
-        let state = serial.data().state().to_owned();
-        if state == port::State::Ready {
+        if serial.is_open() {
             if let Some(tx) = serial.tx_channel() {
                 tx.send(PortChannelData::PortWrite(PorRWData { data }))
                     .unwrap();
@@ -303,9 +312,12 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
             if let Ok(data) = rx.try_recv() {
                 match data {
                     PortChannelData::PortRead(data) => {
-                        let data = data.data;
-                        //let data_str = String::from_utf8_lossy(&data).to_string();
-                        serial.data().write_source_file(&data);
+                        info!("receive serial data: {:?}", data);
+                        let mut data = data.data;
+                        let rd = String::from("Read:");
+                        let mut file_data = rd.as_bytes().to_vec();
+                        file_data.append(&mut data);
+                        serial.data().write_source_file(&file_data);
                     }
                     _ => {}
                 }
