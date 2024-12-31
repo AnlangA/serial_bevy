@@ -34,14 +34,14 @@ fn setup(
     info!("entity: {:?}", entity);
     let height = monitor.physical_height;
     let width = monitor.physical_width;
-    // 创建满屏幕的矩形
+    // create a full screen rectangle
     commands.spawn(Sprite {
         image: asset_server.load("壁纸.png"),
         custom_size: Some(Vec2::new(width as f32, height as f32)),
         ..default()
     });
 
-    // 添加摄像机
+    // add camera
     commands.spawn((Camera2d::default(), Camera {
         target: RenderTarget::Window(WindowRef::Entity(primary_window_entity)),
         ..Default::default()
