@@ -19,8 +19,7 @@ pub struct ScreenPlugin;
 
 impl Plugin for ScreenPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup)
-        .add_systems(Update, rotate);
+        app.add_systems(Startup, setup).add_systems(Update, rotate);
     }
 }
 
@@ -119,7 +118,6 @@ fn setup(
         Camera3d::default(),
         Transform::from_xyz(0.0, 7., 14.0).looking_at(Vec3::new(0., 1., 0.), Vec3::Y),
     ));
-
 }
 
 fn rotate(mut query: Query<&mut Transform, With<Shape>>, time: Res<Time>) {

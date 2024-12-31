@@ -1,11 +1,11 @@
 pub mod ui;
 
-use crate::serial::*;
 use crate::serial::port::Serial;
+use crate::serial::*;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, egui};
-use tokio_serial::{DataBits, FlowControl, Parity, StopBits};
 use std::sync::MutexGuard;
+use tokio_serial::{DataBits, FlowControl, Parity, StopBits};
 
 /// serial ui plugin
 pub struct SerialUiPlugin;
@@ -52,14 +52,12 @@ fn ui_init(mut ctx: EguiContexts) {
     ctx.ctx_mut().set_fonts(fonts);
 }
 
-
 /// serial settings ui
 fn serial_ui(mut contexts: EguiContexts, mut serials: Query<&mut Serials>) {
     for serial in serials.single_mut().serial.iter_mut() {
         let mut serial = serial.lock().unwrap();
         egui::Window::new(serial.set.port_name.clone()).show(contexts.ctx_mut(), |ui| {
-            
-            ui.add_enabled_ui(  serial.data().state().is_close(), |ui| {
+            ui.add_enabled_ui(serial.data().state().is_close(), |ui| {
                 draw_baud_rate_selector(ui, &mut serial);
                 draw_data_bits_selector(ui, &mut serial);
                 draw_stop_bits_selector(ui, &mut serial);
@@ -80,12 +78,8 @@ fn draw_baud_rate_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial
             .selected_text(serial.set.baud_rate().to_string())
             .show_ui(ui, |ui| {
                 for baud_rate in port::COMMON_BAUD_RATES.iter() {
-                    ui.selectable_value(
-                        serial.set.baud_rate(),
-                        *baud_rate,
-                        baud_rate.to_string(),
-                    )
-                    .on_hover_text("选择正确的波特率");
+                    ui.selectable_value(serial.set.baud_rate(), *baud_rate, baud_rate.to_string())
+                        .on_hover_text("选择正确的波特率");
                 }
             });
     });
@@ -99,12 +93,13 @@ fn draw_data_bits_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial
             .width(60f32)
             .selected_text(serial.set.data_size().to_string())
             .show_ui(ui, |ui| {
-                for bits in [DataBits::Five, DataBits::Six, DataBits::Seven, DataBits::Eight] {
-                    ui.selectable_value(
-                        serial.set.data_size(),
-                        bits,
-                        format!("{}", bits),
-                    );
+                for bits in [
+                    DataBits::Five,
+                    DataBits::Six,
+                    DataBits::Seven,
+                    DataBits::Eight,
+                ] {
+                    ui.selectable_value(serial.set.data_size(), bits, format!("{}", bits));
                 }
             });
     });
@@ -119,11 +114,7 @@ fn draw_stop_bits_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial
             .selected_text(serial.set.stop_bits().to_string())
             .show_ui(ui, |ui| {
                 for bits in [StopBits::One, StopBits::Two] {
-                    ui.selectable_value(
-                        serial.set.stop_bits(),
-                        bits,
-                        format!("{}", bits),
-                    );
+                    ui.selectable_value(serial.set.stop_bits(), bits, format!("{}", bits));
                 }
             });
     });
@@ -137,12 +128,12 @@ fn draw_flow_control_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Ser
             .width(60f32)
             .selected_text(serial.set.flow_control().to_string())
             .show_ui(ui, |ui| {
-                for flow in [FlowControl::None, FlowControl::Software, FlowControl::Hardware] {
-                    ui.selectable_value(
-                        serial.set.flow_control(),
-                        flow,
-                        format!("{}", flow),
-                    );
+                for flow in [
+                    FlowControl::None,
+                    FlowControl::Software,
+                    FlowControl::Hardware,
+                ] {
+                    ui.selectable_value(serial.set.flow_control(), flow, format!("{}", flow));
                 }
             });
     });
@@ -157,11 +148,7 @@ fn draw_parity_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) 
             .selected_text(serial.set.parity().to_string())
             .show_ui(ui, |ui| {
                 for parity in [Parity::None, Parity::Odd, Parity::Even] {
-                    ui.selectable_value(
-                        serial.set.parity(),
-                        parity,
-                        format!("{}", parity),
-                    );
+                    ui.selectable_value(serial.set.parity(), parity, format!("{}", parity));
                 }
             });
     });
@@ -170,20 +157,31 @@ fn draw_parity_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) 
 fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     if serial.is_close() {
         if ui.button("打开").clicked() {
+            info!("Open port {}", serial.set.port_name);
             if let Some(tx) = serial.tx_channel() {
-                tx.send(port::PortChannelData::PortOpen).unwrap();
+                match tx.send(port::PortChannelData::PortOpen) {
+                    Ok(_) => {
+                        info!("Send open port message");
+                    }
+                    Err(e) => error!("Failed to open port: {}", e),
+                }
                 let time = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
                 let port_name = serial.set.port_name.clone();
                 let file_name = format!("{}_{}.txt", port_name, time);
                 serial.data().add_source_file(file_name);
             }
         }
-    }
-    else if serial.is_open() {
+    } else if serial.is_open() {
         if ui.button("关闭").clicked() {
+            info!("关闭串口 {}", serial.set.port_name);
             let port_name = serial.set.port_name.clone();
             if let Some(tx) = serial.tx_channel() {
-                tx.send(port::PortChannelData::PortClose(port_name)).unwrap();
+                match tx.send(port::PortChannelData::PortClose(port_name)) {
+                    Ok(_) => {
+                        info!("Send close port message");
+                    }
+                    Err(e) => error!("Failed to close port: {}", e),
+                }
             }
         }
     }

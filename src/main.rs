@@ -1,7 +1,7 @@
 use bevy::prelude::*;
+use serial_bevy::screen::*;
 use serial_bevy::serial::*;
 use serial_bevy::serial_ui::*;
-use serial_bevy::screen::*;
 use std::time::Duration;
 
 #[derive(Resource)]
@@ -38,7 +38,9 @@ fn send_serial_data(
     for serial in serials.serial.iter_mut() {
         let mut serial = serial.lock().unwrap();
         if serial.is_open() {
-            serial.data().send_data("1234567".to_string());
+            if serial.set.port_name == "COM3" {
+                serial.data().send_data("1234567".to_string());
+            }
         }
     }
 }
