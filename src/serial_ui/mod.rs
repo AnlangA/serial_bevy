@@ -53,7 +53,7 @@ fn ui_init(mut ctx: EguiContexts) {
 }
 
 /// serial settings ui
-fn serial_ui(mut contexts: EguiContexts, mut serials: Query<&mut Serials>) {
+fn serial_ui(mut contexts: EguiContexts, mut serials: Query<&mut Serials>, mut commands: Commands) {
     for serial in serials.single_mut().serial.iter_mut() {
         let mut serial = serial.lock().unwrap();
         egui::Window::new(serial.set.port_name.clone()).show(contexts.ctx_mut(), |ui| {
@@ -64,7 +64,7 @@ fn serial_ui(mut contexts: EguiContexts, mut serials: Query<&mut Serials>) {
                 draw_flow_control_selector(ui, &mut serial);
                 draw_parity_selector(ui, &mut serial);
             });
-            open_ui(ui, &mut serial);
+            open_ui(ui, &mut serial, &mut commands);
         });
     }
 }
@@ -154,7 +154,7 @@ fn draw_parity_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) 
     });
 }
 
-fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, commands: &mut Commands) {
     if serial.is_close() {
         if ui.button("打开").clicked() {
             info!("Open port {}", serial.set.port_name);
@@ -173,8 +173,17 @@ fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
         }
     } else if serial.is_open() {
         if ui.button("关闭").clicked() {
+            
             info!("关闭串口 {}", serial.set.port_name);
             let port_name = serial.set.port_name.clone();
+            match serial.window() {
+                Some(window) => {
+                    commands.entity(window.clone()).despawn_recursive();
+                    *serial.window() = None;
+                },
+                None => {},
+            };
+
             if let Some(tx) = serial.tx_channel() {
                 match tx.send(port::PortChannelData::PortClose(port_name)) {
                     Ok(_) => {
