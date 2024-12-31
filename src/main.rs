@@ -38,9 +38,7 @@ fn send_serial_data(
     for serial in serials.serial.iter_mut() {
         let mut serial = serial.lock().unwrap();
         if serial.is_open() {
-            if serial.set.port_name == "COM3" {
                 serial.data().send_data("1234567".to_string());
-            }
         }
     }
 }

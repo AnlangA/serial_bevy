@@ -2,7 +2,6 @@ pub mod data;
 pub mod port;
 
 use bevy::prelude::*;
-use bevy::text::cosmic_text::ttf_parser::name;
 use data::SerialNameChannel;
 use log::info;
 use port::*;
@@ -180,108 +179,152 @@ fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runt
     let mut serials = serials.single_mut();
     for serial in serials.serial.iter_mut() {
         let mut serial = serial.lock().unwrap();
-
-        // create thread
         if serial.thread_handle().is_none() {
-            let (tx, mut rx) = broadcast::channel(100);
-            let (tx1, rx1) = broadcast::channel(100);
+            setup_serial_thread(&mut serial, &runtime);
+        }
+    }
+}
 
-            let mut rx_shutdown = tx.subscribe();
-            *serial.tx_channel() = Some(tx);
-            *serial.rx_channel() = Some(rx1);
+/// setup serial thread
+fn setup_serial_thread(serial: &mut Serial, runtime: &Runtime) {
+    let (tx, mut rx) = broadcast::channel(100);
+    let (tx1, rx1) = broadcast::channel(100);
+    let rx_shutdown = tx.subscribe();
 
-            let port_settings = serial.set.clone();
-            let port_name = port_settings.port_name.clone();
+    *serial.tx_channel() = Some(tx);
+    *serial.rx_channel() = Some(rx1);
 
-            let handle = runtime.rt.spawn(async move {
-                let port = loop {
-                    if let Ok(data) = rx.recv().await {
-                        if let PortChannelData::PortOpen = data {
-                            if let Some(port) = open_port(port_settings).await {
-                                break port;
-                            } else {
-                                match tx1.send(PortChannelData::PortClose("open port failed".into())) {
-                                    Ok(_) => {},
-                                    Err(e) => error!("Failed to send port close message: {}", e),
-                                }
-                                return;
-                            }
-                        }
+    let port_settings = serial.set.clone();
+    let port_name = port_settings.port_name.clone();
+
+    let handle = runtime.rt.spawn(async move {
+        #[allow(unused_assignments)]
+        let mut port: Option<SerialStream> = None;
+        port = match wait_for_port_open(&mut rx, &tx1, port_settings).await {
+            Ok(p) => Some(p),
+            Err(e) => {
+                return Err(e.into());
+            }
+        };
+        
+        info!("open serial port: {}", port_name);
+        if let Err(e) = notify_port_ready(&tx1) {
+            return Err(e.into());
+        }
+        let port = port.unwrap();
+        let (read, write) = io::split(port);
+        let read_handle = spawn_read_thread(read, tx1.clone(), rx_shutdown, &port_name);
+        
+        handle_write_thread(write, rx, tx1, &port_name).await;
+
+        // clean up
+        read_handle.abort();
+        info!("serial port thread exit");
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    });
+
+    *serial.thread_handle() = Some(handle);
+}
+
+
+/// wait for port open
+async fn wait_for_port_open(
+    rx: &mut broadcast::Receiver<PortChannelData>,
+    tx1: &broadcast::Sender<PortChannelData>,
+    port_settings: PortSettings,
+) -> Result<tokio_serial::SerialStream, Box<dyn std::error::Error + Send + Sync>> {
+    loop {
+        if let Ok(data) = rx.recv().await {
+            if let PortChannelData::PortOpen = data {
+                if let Some(port) = open_port(port_settings).await {
+                    return Ok(port);
+                } else {
+                    match tx1.send(PortChannelData::PortClose("open port failed".into())) {
+                        Ok(_) => {},
+                        Err(e) => error!("发送端口关闭消息失败: {}", e),
                     }
-                };
-
-                info!("open serial port: {}", port_name);
-                match tx1.send(PortChannelData::PortState(port::State::Ready)) {
-                    Ok(_) => {},
-                    Err(e) => error!("Failed to send port ready state: {}", e),
+                    return Err("Failed to open port".into());
                 }
+            }
+        }
+    }
+}
 
-                let (read, write) = io::split(port);
+/// notify port ready
+fn notify_port_ready(tx1: &broadcast::Sender<PortChannelData>) -> Result<(), broadcast::error::SendError<PortChannelData>> {
+    match tx1.send(PortChannelData::PortState(port::State::Ready)) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            error!("Failed to send port ready state: {}", e);
+            Err(e)
+        }
+    }
+}
 
-                // read thread
-                let tx1_read = tx1.clone();
-                let read_handle = tokio::spawn(async move {
-                    let mut read = read;
-                    let mut buffer = [0u8; 1024];
-
-                    loop {
-                        tokio::select! {
-                            // check shutdown signal
-                            result = rx_shutdown.recv() => {
-                                if let Ok(PortChannelData::PortClose(name)) = result {
-                                    info!("Received close command, read thread exiting. port name: {}", name);
-                                    break;
-                                }
-                            }
-                            // read serial port data
-                            result = read.read(&mut buffer) => {
-                                match result {
-                                    Ok(n) => {
-                                        let data = PorRWData {
-                                            data: buffer[..n].to_vec(),
-                                        };
-                                        match tx1_read.send(PortChannelData::PortRead(data)) {
-                                            Ok(_) => {},
-                                            Err(e) => error!("Failed to send read data: {}", e),
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!("read error: {}", e);
-                                        break;
-                                    }
-                                }
+/// spawn read thread
+fn spawn_read_thread(
+    mut read: io::ReadHalf<tokio_serial::SerialStream>,
+    tx1_read: broadcast::Sender<PortChannelData>,
+    mut rx_shutdown: broadcast::Receiver<PortChannelData>,
+    port_name: &str,
+) -> tokio::task::JoinHandle<()> {
+    let port_name = port_name.to_owned();
+    tokio::spawn(async move {
+        let mut buffer = [0u8; 1024];
+        loop {
+            tokio::select! {
+                result = rx_shutdown.recv() => {
+                    if let Ok(PortChannelData::PortClose(name)) = result {
+                        info!("Received close command, read thread exiting. port name: {}", name);
+                        break;
+                    }
+                }
+                result = read.read(&mut buffer) => {
+                    match result {
+                        Ok(n) => {
+                            let data = PorRWData {
+                                data: buffer[..n].to_vec(),
+                            };
+                            match tx1_read.send(PortChannelData::PortRead(data.clone())) {
+                                Ok(_) => {info!("{} read : {:?}", port_name, data.data)},
+                                Err(e) => error!("Failed to send read data: {}", e),
                             }
                         }
-                    }
-                });
-
-                // write thread
-                let mut write = write;
-                loop {
-                    if let Ok(data) = rx.recv().await {
-                        match data {
-                            PortChannelData::PortWrite(data) => {
-                                if write.write(&data.data).await.is_err() {
-                                    break;
-                                }
-                            }
-                            PortChannelData::PortClose(name) => {
-                                info!("close serial port: {}", name);
-                                tx1.send(PortChannelData::PortState(port::State::Close))
-                                    .unwrap();
-                                break;
-                            }
-                            _ => {}
+                        Err(e) => {
+                            error!("read error: {}", e);
+                            break;
                         }
                     }
                 }
+            }
+        }
+    })
+}
 
-                // clean up
-                read_handle.abort();
-                info!("serial port thread exit");
-            });
-
-            *serial.thread_handle() = Some(handle);
+/// handle write thread
+async fn handle_write_thread(
+    mut write: io::WriteHalf<tokio_serial::SerialStream>,
+    mut rx: broadcast::Receiver<PortChannelData>,
+    tx1: broadcast::Sender<PortChannelData>,
+    port_name: &str,
+) {
+    loop {
+        if let Ok(data) = rx.recv().await {
+            match data {
+                PortChannelData::PortWrite(data) => {
+                    info!("{} write : {:?}", port_name, data.data);
+                    if write.write(&data.data).await.is_err() {
+                        break;
+                    }
+                }
+                PortChannelData::PortClose(name) => {
+                    info!("{} close serial port: {}", port_name, name);
+                    tx1.send(PortChannelData::PortState(port::State::Close))
+                        .unwrap();
+                    break;
+                }
+                _ => {}
+            }
         }
     }
 }
@@ -303,8 +346,9 @@ fn send_serial_data(mut serials: Query<&mut Serials>) {
             .iter()
             .flat_map(|d| d.as_bytes().iter().copied())
             .collect::<Vec<u8>>();
-        let mut file_data = String::from("Write:").as_bytes().to_vec();
+        let mut file_data = String::from("[Write]:    ").as_bytes().to_vec();
         file_data.append(&mut data.clone());
+        
         serial.data().write_source_file(&file_data);
 
         if serial.is_open() {
@@ -344,7 +388,7 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
                     _ => {}
                 },
                 PortChannelData::PortRead(data) => {
-                    let mut file_data = b"Read:".to_vec();
+                    let mut file_data = b"[Read] :    ".to_vec();
                     file_data.extend(data.data);
                     serial.data().write_source_file(&file_data);
                 }

@@ -1,6 +1,6 @@
 use log::{error, info};
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{Write, BufWriter };
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
@@ -18,7 +18,7 @@ pub struct Serial {
     pub set: PortSettings,
     data: PortData,
     stream: Option<SerialStream>,
-    thread_handle: Option<JoinHandle<()>>,
+    thread_handle: Option<JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>>,
     tx_channel: Option<broadcast::Sender<PortChannelData>>,
     rx_channel: Option<broadcast::Receiver<PortChannelData>>,
 }
@@ -53,7 +53,7 @@ impl Serial {
     }
 
     /// get thread handle
-    pub fn thread_handle(&mut self) -> &mut Option<JoinHandle<()>> {
+    pub fn thread_handle(&mut self) -> &mut Option<JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>> {
         &mut self.thread_handle
     }
 
@@ -239,9 +239,11 @@ impl PortData {
 
     /// write data to last source file
     pub fn write_source_file(&mut self, data: &[u8]) {
-        let mut file = self.source_file.file.last().unwrap();
-        file.write_all(data).unwrap();
-        file.write_all(b"\n").unwrap();
+        let file = self.source_file.file.last().unwrap();
+        let mut write = BufWriter::new(file);
+        write.write_all(data).unwrap();
+        write.write_all(b"\n").unwrap();
+        write.flush().unwrap();
     }
 
     /// add parse file and add it's index
