@@ -1,9 +1,9 @@
+use bevy::window::WindowClosing;
 use bevy::{
     prelude::*,
     render::camera::RenderTarget,
     window::{PresentMode, PrimaryWindow, WindowRef, WindowResolution},
 };
-use bevy::window::WindowClosing;
 
 use serial_bevy::screen::*;
 use serial_bevy::serial::*;
@@ -72,7 +72,10 @@ fn send_serial_data(
     }
 }
 
-fn print_keyboard_event_system(mut keyboard_input_events: EventReader<WindowClosing>, mut serials: Query<&mut Serials>) {
+fn print_keyboard_event_system(
+    mut keyboard_input_events: EventReader<WindowClosing>,
+    mut serials: Query<&mut Serials>,
+) {
     for event in keyboard_input_events.read() {
         let mut serial = serials.get_single_mut().unwrap();
         for serial in serial.serial.iter_mut() {

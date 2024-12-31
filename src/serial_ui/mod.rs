@@ -173,15 +173,14 @@ fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, commands: &mu
         }
     } else if serial.is_open() {
         if ui.button("关闭").clicked() {
-            
             info!("关闭串口 {}", serial.set.port_name);
             let port_name = serial.set.port_name.clone();
             match serial.window() {
                 Some(window) => {
                     commands.entity(window.clone()).despawn_recursive();
                     *serial.window() = None;
-                },
-                None => {},
+                }
+                None => {}
             };
 
             if let Some(tx) = serial.tx_channel() {

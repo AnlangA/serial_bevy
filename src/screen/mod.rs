@@ -6,9 +6,9 @@
 
 use bevy::{
     prelude::*,
-    window::*,
+    render::camera::RenderTarget,
     sprite::Sprite,
-    render::{camera::RenderTarget, view::RenderLayers},
+    window::*,
 };
 
 pub struct ScreenPlugin;
@@ -19,24 +19,31 @@ impl Plugin for ScreenPlugin {
     }
 }
 
-/// 设置屏幕壁纸
+/// set wallpaper
 fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    windows: Query<(Entity,&Monitor), With<PrimaryMonitor>>,
+    monitor_windows: Query<(Entity, &Monitor), With<PrimaryMonitor>>,
+    primary_window: Query<Entity, With<PrimaryWindow>>,
 ) {
-    for (entity, monitor) in windows.iter() {
-        println!("entity: {:?}", entity);
-        let height = monitor.physical_height;
-        let width = monitor.physical_width;
-        // 创建满屏幕的矩形
-        commands.spawn(Sprite {
-            image: asset_server.load("壁纸.png"),
-            custom_size: Some(Vec2::new(width as f32, height as f32)),
-            ..default()
-        });
-    
-        // 添加摄像机
-        commands.spawn(Camera2d::default());
-    }
+    // Monitor Entity is different from Window Entity
+    let primary_window_entity = primary_window.get_single().unwrap();
+    info!("primary_window_entity: {:?}", primary_window_entity);
+
+    let (entity, monitor) = monitor_windows.get_single().unwrap();
+    info!("entity: {:?}", entity);
+    let height = monitor.physical_height;
+    let width = monitor.physical_width;
+    // 创建满屏幕的矩形
+    commands.spawn(Sprite {
+        image: asset_server.load("壁纸.png"),
+        custom_size: Some(Vec2::new(width as f32, height as f32)),
+        ..default()
+    });
+
+    // 添加摄像机
+    commands.spawn((Camera2d::default(), Camera {
+        target: RenderTarget::Window(WindowRef::Entity(primary_window_entity)),
+        ..Default::default()
+    }));
 }
