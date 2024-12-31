@@ -388,7 +388,7 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
                     _ => {}
                 },
                 PortChannelData::PortRead(data) => {
-                    let mut file_data = b"[Read] :    ".to_vec();
+                    let mut file_data = b"[Read ]:    ".to_vec();
                     file_data.extend(data.data);
                     serial.data().write_source_file(&file_data);
                 }
