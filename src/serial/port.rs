@@ -84,6 +84,7 @@ impl Serial {
     pub fn close(&mut self) {
         self.data.state().close();
         self.thread_handle = None;
+        self.data.window = None;
     }
 
     /// is serial port close

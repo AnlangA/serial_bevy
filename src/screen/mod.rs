@@ -4,12 +4,7 @@
 //! You can toggle wireframes with the space bar except on wasm. Wasm does not support
 //! `POLYGON_MODE_LINE` on the gpu.
 
-use bevy::{
-    prelude::*,
-    render::camera::RenderTarget,
-    sprite::Sprite,
-    window::*,
-};
+use bevy::{prelude::*, render::camera::RenderTarget, sprite::Sprite, window::*};
 
 pub struct ScreenPlugin;
 

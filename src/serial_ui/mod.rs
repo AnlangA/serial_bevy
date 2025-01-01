@@ -2,8 +2,12 @@ pub mod ui;
 
 use crate::serial::port::Serial;
 use crate::serial::*;
-use bevy::prelude::*;
-use bevy_egui::{EguiContexts, EguiPlugin, egui};
+use bevy::{
+    prelude::*,
+    render::camera::RenderTarget,
+    window::{PresentMode, WindowClosing, WindowRef, WindowResolution,PrimaryWindow},
+};
+use bevy_egui::{EguiContext, EguiContexts, EguiPlugin, egui};
 use std::sync::MutexGuard;
 use tokio_serial::{DataBits, FlowControl, Parity, StopBits};
 
@@ -15,7 +19,7 @@ impl Plugin for SerialUiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin)
             .add_systems(Startup, ui_init)
-            .add_systems(Update, serial_ui);
+            .add_systems(Update, (serial_ui, serial_window,close_event_system).chain());
     }
 }
 
@@ -178,7 +182,6 @@ fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, commands: &mu
             match serial.window() {
                 Some(window) => {
                     commands.entity(window.clone()).despawn_recursive();
-                    *serial.window() = None;
                 }
                 None => {}
             };
@@ -194,3 +197,94 @@ fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, commands: &mu
         }
     }
 }
+
+fn close_event_system(
+    mut window_close_events: EventReader<WindowClosing>,
+    mut serials: Query<&mut Serials>,
+) {
+    for event in window_close_events.read() {
+        let mut serial = serials.get_single_mut().unwrap();
+        for serial in serial.serial.iter_mut() {
+            let mut serial = serial.lock().unwrap();
+            let port_name = serial.set.port_name.clone();
+            if serial.is_open() {
+                if let Some(window) = serial.window() {
+                    if *window == event.window {
+                        if let Some(tx) = serial.tx_channel() {
+                            match tx.send(port::PortChannelData::PortClose(port_name)) {
+                                Ok(_) => {
+                                    info!("Send close port message");
+                                }
+                                Err(e) => error!("Failed to close port: {}", e),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn serial_window(mut commands: Commands, mut serials: Query<&mut Serials>) {
+    let mut serials = serials.single_mut();
+    for serial in serials.serial.iter_mut() {
+        let mut serial = serial.lock().unwrap();
+        if serial.is_open() {
+            if let None = serial.window() {
+                let window_id = commands
+                    .spawn(Window {
+                        title: serial.set.port_name().to_owned(),
+                        resolution: WindowResolution::new(800.0, 600.0),
+                        present_mode: PresentMode::AutoVsync,
+                        ..Default::default()
+                    })
+                    .id();
+                // second window camera
+                commands.spawn((
+                    Camera3d::default(),
+                    Camera {
+                        target: RenderTarget::Window(WindowRef::Entity(window_id)),
+                        ..Default::default()
+                    },
+                    Transform::from_xyz(0.0, 0.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+                ));
+                info!("{} window id: {}", serial.set.port_name(), window_id);
+                *serial.window() = Some(window_id);
+            }
+        }
+    }
+}
+
+/* 
+fn serial_window_ui(
+    mut commands: Commands,
+    mut serials: Query<&mut Serials>,
+    mut ctx_entity: Query<(&mut EguiContext, Entity), Without<PrimaryWindow>>,
+) {
+    let mut serials = serials.single_mut();
+    for (mut contexts, entity) in ctx_entity.iter_mut() {
+        for serial in serials.serial.iter_mut() {
+            let mut serial = serial.lock().unwrap();
+            if serial.window().is_some() && serial.window().unwrap() == entity {
+                info!("{} window id: {}", serial.set.port_name(), entity);
+                egui::Window::new(serial.set.port_name.clone() + "windows").show(contexts.get_mut(), |ui| {
+                    ui.label("hello");
+                });
+            }
+        }
+    }
+}
+*/
+/* 
+fn serial_window_ui(
+    mut egui_ctx: Query<&mut EguiContext, Without<PrimaryWindow>>,
+) {
+    let Ok(mut ctx) = egui_ctx.get_single_mut() else {
+        return;
+    };
+    info!("serial_window_ui");
+    egui::Window::new("Second Window")
+        .show(ctx.get_mut(), |ui| {
+            ui.label("hello");
+        });
+}*/
