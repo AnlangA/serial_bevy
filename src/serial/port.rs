@@ -85,6 +85,7 @@ impl Serial {
         self.data.state().close();
         self.thread_handle = None;
         self.data.window = None;
+        self.data.camera = None;
     }
 
     /// is serial port close
@@ -96,6 +97,12 @@ impl Serial {
     pub fn window(&mut self) -> &mut Option<Entity> {
         &mut self.data.window
     }
+
+    /// get camera entity
+    pub fn camera(&mut self) -> &mut Option<Entity> {
+        &mut self.data.camera
+    }
+
 }
 
 /// serial port settings
@@ -253,6 +260,8 @@ pub struct PortData {
     data_type: Type,
     /// window entity
     window: Option<Entity>,
+    /// camera entity
+    camera: Option<Entity>,
 }
 
 impl PortData {
@@ -265,6 +274,7 @@ impl PortData {
             state: State::Close,
             data_type: Type::Utf8,
             window: None,
+            camera: None,
         }
     }
 
@@ -362,6 +372,11 @@ impl PortData {
     /// get window entity
     pub fn window(&mut self) -> &mut Option<Entity> {
         &mut self.window
+    }
+
+    /// get camera entity
+    pub fn camera(&mut self) -> &mut Option<Entity> {
+        &mut self.camera
     }
 }
 

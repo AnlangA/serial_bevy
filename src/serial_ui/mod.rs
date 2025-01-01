@@ -18,8 +18,9 @@ pub struct SerialUiPlugin;
 impl Plugin for SerialUiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin)
+            .insert_resource(Flag { flag: true })
             .add_systems(Startup, ui_init)
-            .add_systems(Update, (serial_ui, serial_window,close_event_system).chain());
+            .add_systems(Update, (serial_ui, serial_window, close_event_system, serial_window_ui).chain());
     }
 }
 
@@ -240,51 +241,44 @@ fn serial_window(mut commands: Commands, mut serials: Query<&mut Serials>) {
                     })
                     .id();
                 // second window camera
-                commands.spawn((
+                let camera_id = commands.spawn((
                     Camera3d::default(),
                     Camera {
                         target: RenderTarget::Window(WindowRef::Entity(window_id)),
                         ..Default::default()
                     },
-                    Transform::from_xyz(0.0, 0.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
-                ));
+                    Transform::from_xyz(6.0, 0.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+                )).id();
                 info!("{} window id: {}", serial.set.port_name(), window_id);
                 *serial.window() = Some(window_id);
+                *serial.camera() = Some(camera_id);
             }
         }
     }
 }
 
-/* 
+#[derive(Resource)]
+struct Flag {
+    flag: bool,
+}
+
 fn serial_window_ui(
     mut commands: Commands,
-    mut serials: Query<&mut Serials>,
-    mut ctx_entity: Query<(&mut EguiContext, Entity), Without<PrimaryWindow>>,
+    mut egui_ctx: Query<&mut Serials>,
+    mut flag: ResMut<Flag>,
 ) {
-    let mut serials = serials.single_mut();
-    for (mut contexts, entity) in ctx_entity.iter_mut() {
-        for serial in serials.serial.iter_mut() {
-            let mut serial = serial.lock().unwrap();
-            if serial.window().is_some() && serial.window().unwrap() == entity {
-                info!("{} window id: {}", serial.set.port_name(), entity);
-                egui::Window::new(serial.set.port_name.clone() + "windows").show(contexts.get_mut(), |ui| {
-                    ui.label("hello");
-                });
+    let mut serials = egui_ctx.single_mut();
+    for serial in serials.serial.iter_mut() {
+        let mut serial = serial.lock().unwrap();
+        if serial.camera().is_some() {
+            if flag.flag {
+                commands.spawn((
+                    Text::new("First window"),
+                    // Since we are using multiple cameras, we need to specify which camera UI should be rendered to
+                    TargetCamera(serial.camera().unwrap()),
+                ));
+                flag.flag = false;
             }
         }
     }
 }
-*/
-/* 
-fn serial_window_ui(
-    mut egui_ctx: Query<&mut EguiContext, Without<PrimaryWindow>>,
-) {
-    let Ok(mut ctx) = egui_ctx.get_single_mut() else {
-        return;
-    };
-    info!("serial_window_ui");
-    egui::Window::new("Second Window")
-        .show(ctx.get_mut(), |ui| {
-            ui.label("hello");
-        });
-}*/
