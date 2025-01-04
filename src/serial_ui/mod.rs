@@ -86,23 +86,8 @@ fn serial_ui(mut contexts: EguiContexts, mut serials: Query<&mut Serials>, mut c
             });
             ui.separator();
             egui::ScrollArea::both().show(ui, |ui| {
-                for serial in serials.single_mut().serial.iter_mut() {
-                    let mut serial = serial.lock().unwrap();
-                    ui.horizontal(|ui| {
-                    if serial.is_open() {
-                        if ui.selectable_label(selected.is_selected(&serial.set.port_name), egui::RichText::new(serial.set.port_name.clone()).color(egui::Color32::ORANGE).strong()).clicked(){
-                            selected.select(&serial.set.port_name);
-                        }
-                    } else {
-                        if ui.selectable_label(selected.is_selected(&serial.set.port_name), egui::RichText::new(serial.set.port_name.clone()).color(egui::Color32::GREEN).strong()).clicked(){
-                            selected.select(&serial.set.port_name);
-                        }
-                    }
-                    open_ui(ui, &mut serial, &mut commands, &mut selected);
-                });
-                
-
-            }});
+                draw_select_serial_ui(ui, &mut serials.single_mut(), selected.as_mut(), commands);
+            });
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 for serial in serials.single_mut().serial.iter_mut() {
                     let mut serial = serial.lock().unwrap();
@@ -114,18 +99,11 @@ fn serial_ui(mut contexts: EguiContexts, mut serials: Query<&mut Serials>, mut c
                         draw_baud_rate_selector(ui, &mut serial);
                     }
                 }
-                ui.horizontal(|ui| {
-                    if selected.selected() != "" {
-                        ui.label("当前选中:");
-                        ui.label(selected.selected());
-                    }else {
-                        ui.label("当前未选中串口");
-                    }
-                });
-                ui.separator();
+                draw_serial_setting_ui(ui, selected.as_mut());
             });
         });
     egui::CentralPanel::default().show(contexts.ctx_mut(), |ui| {
         ui.label("主面板");
     });
 }
+
