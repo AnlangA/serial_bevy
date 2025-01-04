@@ -1,6 +1,7 @@
+use bevy::prelude::*;
 use log::{error, info};
 use std::fs::{File, OpenOptions};
-use std::io::{Write, BufWriter };
+use std::io::{BufWriter, Write};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
@@ -53,7 +54,9 @@ impl Serial {
     }
 
     /// get thread handle
-    pub fn thread_handle(&mut self) -> &mut Option<JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>> {
+    pub fn thread_handle(
+        &mut self,
+    ) -> &mut Option<JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>> {
         &mut self.thread_handle
     }
 
@@ -81,11 +84,23 @@ impl Serial {
     pub fn close(&mut self) {
         self.data.state().close();
         self.thread_handle = None;
+        self.data.window = None;
+        self.data.camera = None;
     }
 
     /// is serial port close
     pub fn is_close(&mut self) -> bool {
         self.data.state().is_close()
+    }
+
+    /// get window entity
+    pub fn window(&mut self) -> &mut Option<Entity> {
+        &mut self.data.window
+    }
+
+    /// get camera entity
+    pub fn camera(&mut self) -> &mut Option<Entity> {
+        &mut self.data.camera
     }
 }
 
@@ -195,7 +210,39 @@ pub async fn open_port(port_data: PortSettings) -> Option<SerialStream> {
         }
     }
 }
+pub struct CacheData {
+    pub history_data: Vec<String>,
+    pub history_index: usize,
+    pub current_data: String,
+}
 
+impl CacheData {
+    pub fn new() -> Self {
+        CacheData {
+            history_data: vec![],
+            history_index: 0,
+            current_data: String::new(),
+        }
+    }
+    pub fn add_history_data(&mut self, data: String) {
+        self.history_data.push(data);
+        self.history_index = self.history_data.len();
+    }
+    pub fn get_history_data(&mut self, index: usize) -> &String {
+        if index >= self.history_data.len() {
+            self.history_index = self.history_data.len();
+        } else {
+            self.history_index = index;
+        }
+        &self.history_data[self.history_index]
+    }
+    pub fn get_current_data(&self) -> &String {
+        &self.current_data
+    }
+    pub fn set_current_data(&mut self, data: String) {
+        self.current_data = data;
+    }
+}
 /// serial port data
 pub struct PortData {
     /// source file
@@ -204,10 +251,16 @@ pub struct PortData {
     parse_file: FileData,
     /// send data
     send_data: Vec<String>,
+    /// cache data
+    cache_data: CacheData,
     /// serial port state
     state: State,
     /// serial port data type
     data_type: Type,
+    /// window entity
+    window: Option<Entity>,
+    /// camera entity
+    camera: Option<Entity>,
 }
 
 impl PortData {
@@ -216,8 +269,11 @@ impl PortData {
             source_file: FileData { file: vec![] },
             parse_file: FileData { file: vec![] },
             send_data: vec![],
+            cache_data: CacheData::new(),
             state: State::Close,
             data_type: Type::Utf8,
+            window: None,
+            camera: None,
         }
     }
 
@@ -246,6 +302,9 @@ impl PortData {
         write.flush().unwrap();
     }
 
+    pub fn get_source_file(&self, index: usize) -> &File {
+        &self.source_file.file[index]
+    }
     /// add parse file and add it's index
     pub fn add_parse_file(&mut self, name: String) -> usize {
         let file = OpenOptions::new()
@@ -266,6 +325,10 @@ impl PortData {
     pub fn write_parse_file(&mut self, data: &[u8]) {
         let mut file = self.parse_file.file.last().unwrap();
         file.write_all(data).unwrap();
+    }
+
+    pub fn get_parse_file(&self, index: usize) -> &File {
+        &self.parse_file.file[index]
     }
 
     /// add send data
@@ -290,6 +353,11 @@ impl PortData {
         self.data_type = data_type;
     }
 
+    /// get cache data
+    pub fn get_cache_data(&mut self) -> &mut CacheData {
+        &mut self.cache_data
+    }
+
     /// get state
     pub fn state(&mut self) -> &mut State {
         &mut self.state
@@ -298,6 +366,16 @@ impl PortData {
     /// get data type
     pub fn data_type(&self) -> &Type {
         &self.data_type
+    }
+
+    /// get window entity
+    pub fn window(&mut self) -> &mut Option<Entity> {
+        &mut self.window
+    }
+
+    /// get camera entity
+    pub fn camera(&mut self) -> &mut Option<Entity> {
+        &mut self.camera
     }
 }
 

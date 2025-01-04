@@ -1,4 +1,10 @@
-use bevy::prelude::*;
+use bevy::window::WindowClosing;
+use bevy::{
+    prelude::*,
+    render::camera::RenderTarget,
+    window::{PresentMode, WindowRef, WindowResolution},
+};
+
 use serial_bevy::screen::*;
 use serial_bevy::serial::*;
 use serial_bevy::serial_ui::*;
@@ -26,6 +32,7 @@ fn setup(mut commands: Commands) {
 }
 
 fn send_serial_data(
+    mut commands: Commands,
     mut serials: Query<&mut Serials>,
     mut timer: ResMut<GameTimer>,
     time: Res<Time>,
@@ -38,7 +45,7 @@ fn send_serial_data(
     for serial in serials.serial.iter_mut() {
         let mut serial = serial.lock().unwrap();
         if serial.is_open() {
-                serial.data().send_data("1234567".to_string());
+            serial.data().send_data("你好呀".to_string());
         }
     }
 }

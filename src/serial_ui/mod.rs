@@ -2,8 +2,12 @@ pub mod ui;
 
 use crate::serial::port::Serial;
 use crate::serial::*;
-use bevy::prelude::*;
-use bevy_egui::{EguiContexts, EguiPlugin, egui};
+use bevy::{
+    prelude::*,
+    render::camera::RenderTarget,
+    window::{PresentMode, PrimaryWindow, WindowClosing, WindowRef, WindowResolution},
+};
+use bevy_egui::{EguiContext, EguiContexts, EguiPlugin, egui};
 use std::sync::MutexGuard;
 use tokio_serial::{DataBits, FlowControl, Parity, StopBits};
 
@@ -14,13 +18,24 @@ pub struct SerialUiPlugin;
 impl Plugin for SerialUiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin)
+            .insert_resource(ClearColor(Color::srgb(0.5, 0.5, 0.9)))
+            .insert_resource(Flag { flag: true })
             .add_systems(Startup, ui_init)
-            .add_systems(Update, serial_ui);
+            .add_systems(
+                Update,
+                (
+                    serial_ui,
+                    serial_window,
+                    close_event_system,
+                    serial_window_ui,
+                )
+                    .chain(),
+            );
     }
 }
 
 /// set theme
-fn ui_init(mut ctx: EguiContexts) {
+fn ui_init(mut ctx: EguiContexts, mut commands: Commands) {
     // Start with the default fonts (we will be adding to them rather than replacing thereplacing them).
     let mut fonts = egui::FontDefinitions::default();
 
@@ -28,7 +43,7 @@ fn ui_init(mut ctx: EguiContexts) {
     // .ttf and .otf files supported.
     fonts.font_data.insert(
         "Song".to_owned(),
-        egui::FontData::from_static(include_bytes!("../fonts/STSong.ttf")),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/STSong.ttf")),
     );
     fonts
         .families
@@ -53,7 +68,7 @@ fn ui_init(mut ctx: EguiContexts) {
 }
 
 /// serial settings ui
-fn serial_ui(mut contexts: EguiContexts, mut serials: Query<&mut Serials>) {
+fn serial_ui(mut contexts: EguiContexts, mut serials: Query<&mut Serials>, mut commands: Commands) {
     for serial in serials.single_mut().serial.iter_mut() {
         let mut serial = serial.lock().unwrap();
         egui::Window::new(serial.set.port_name.clone()).show(contexts.ctx_mut(), |ui| {
@@ -64,7 +79,7 @@ fn serial_ui(mut contexts: EguiContexts, mut serials: Query<&mut Serials>) {
                 draw_flow_control_selector(ui, &mut serial);
                 draw_parity_selector(ui, &mut serial);
             });
-            open_ui(ui, &mut serial);
+            open_ui(ui, &mut serial, &mut commands);
         });
     }
 }
@@ -154,7 +169,7 @@ fn draw_parity_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) 
     });
 }
 
-fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, commands: &mut Commands) {
     if serial.is_close() {
         if ui.button("打开").clicked() {
             info!("Open port {}", serial.set.port_name);
@@ -175,6 +190,13 @@ fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
         if ui.button("关闭").clicked() {
             info!("关闭串口 {}", serial.set.port_name);
             let port_name = serial.set.port_name.clone();
+            match serial.window() {
+                Some(window) => {
+                    commands.entity(window.clone()).despawn_recursive();
+                }
+                None => {}
+            };
+
             if let Some(tx) = serial.tx_channel() {
                 match tx.send(port::PortChannelData::PortClose(port_name)) {
                     Ok(_) => {
@@ -182,6 +204,100 @@ fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
                     }
                     Err(e) => error!("Failed to close port: {}", e),
                 }
+            }
+        }
+    }
+}
+
+fn close_event_system(
+    mut window_close_events: EventReader<WindowClosing>,
+    mut serials: Query<&mut Serials>,
+) {
+    for event in window_close_events.read() {
+        let mut serial = serials.get_single_mut().unwrap();
+        for serial in serial.serial.iter_mut() {
+            let mut serial = serial.lock().unwrap();
+            let port_name = serial.set.port_name.clone();
+            if serial.is_open() {
+                if let Some(window) = serial.window() {
+                    if *window == event.window {
+                        if let Some(tx) = serial.tx_channel() {
+                            match tx.send(port::PortChannelData::PortClose(port_name)) {
+                                Ok(_) => {
+                                    info!("Send close port message");
+                                }
+                                Err(e) => error!("Failed to close port: {}", e),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn serial_window(mut commands: Commands, mut serials: Query<&mut Serials>) {
+    let mut serials = serials.single_mut();
+    for serial in serials.serial.iter_mut() {
+        let mut serial = serial.lock().unwrap();
+        if serial.is_open() {
+            if let None = serial.window() {
+                let window_id = commands
+                    .spawn(Window {
+                        title: serial.set.port_name().to_owned(),
+                        resolution: WindowResolution::new(800.0, 600.0),
+                        present_mode: PresentMode::AutoVsync,
+                        ..Default::default()
+                    })
+                    .id();
+                // second window camera
+                let camera_id = commands
+                    .spawn((
+                        Camera3d::default(),
+                        Camera {
+                            target: RenderTarget::Window(WindowRef::Entity(window_id)),
+                            ..Default::default()
+                        },
+                        Transform::from_xyz(6.0, 0.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+                    ))
+                    .id();
+                info!("{} window id: {}", serial.set.port_name(), window_id);
+                *serial.window() = Some(window_id);
+                *serial.camera() = Some(camera_id);
+            }
+        }
+    }
+}
+
+#[derive(Resource)]
+struct Flag {
+    flag: bool,
+}
+
+fn serial_window_ui(
+    mut commands: Commands,
+    mut egui_ctx: Query<&mut Serials>,
+    mut flag: ResMut<Flag>,
+    asset_server: Res<AssetServer>,
+) {
+    let mut serials = egui_ctx.single_mut();
+    for serial in serials.serial.iter_mut() {
+        let mut serial = serial.lock().unwrap();
+        if serial.camera().is_some() {
+            if flag.flag {
+                commands.spawn((
+                    Text::new("你好aaa"),
+                    TextFont {
+                        font: asset_server.load("fonts/STSong.ttf"),
+                        font_size: 100.0,
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, 0.0, 0.0),
+                    // Since we are using multiple cameras, we need to specify which camera UI should be rendered to
+                    TargetCamera(serial.camera().unwrap()),
+                ));
+
+                flag.flag = false;
             }
         }
     }

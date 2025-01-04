@@ -206,7 +206,7 @@ fn setup_serial_thread(serial: &mut Serial, runtime: &Runtime) {
                 return Err(e.into());
             }
         };
-        
+
         info!("open serial port: {}", port_name);
         if let Err(e) = notify_port_ready(&tx1) {
             return Err(e.into());
@@ -214,7 +214,7 @@ fn setup_serial_thread(serial: &mut Serial, runtime: &Runtime) {
         let port = port.unwrap();
         let (read, write) = io::split(port);
         let read_handle = spawn_read_thread(read, tx1.clone(), rx_shutdown, &port_name);
-        
+
         handle_write_thread(write, rx, tx1, &port_name).await;
 
         // clean up
@@ -225,7 +225,6 @@ fn setup_serial_thread(serial: &mut Serial, runtime: &Runtime) {
 
     *serial.thread_handle() = Some(handle);
 }
-
 
 /// wait for port open
 async fn wait_for_port_open(
@@ -240,7 +239,7 @@ async fn wait_for_port_open(
                     return Ok(port);
                 } else {
                     match tx1.send(PortChannelData::PortClose("open port failed".into())) {
-                        Ok(_) => {},
+                        Ok(_) => {}
                         Err(e) => error!("发送端口关闭消息失败: {}", e),
                     }
                     return Err("Failed to open port".into());
@@ -251,7 +250,9 @@ async fn wait_for_port_open(
 }
 
 /// notify port ready
-fn notify_port_ready(tx1: &broadcast::Sender<PortChannelData>) -> Result<(), broadcast::error::SendError<PortChannelData>> {
+fn notify_port_ready(
+    tx1: &broadcast::Sender<PortChannelData>,
+) -> Result<(), broadcast::error::SendError<PortChannelData>> {
     match tx1.send(PortChannelData::PortState(port::State::Ready)) {
         Ok(_) => Ok(()),
         Err(e) => {
@@ -348,7 +349,7 @@ fn send_serial_data(mut serials: Query<&mut Serials>) {
             .collect::<Vec<u8>>();
         let mut file_data = String::from("[Write]:    ").as_bytes().to_vec();
         file_data.append(&mut data.clone());
-        
+
         serial.data().write_source_file(&file_data);
 
         if serial.is_open() {
