@@ -19,7 +19,7 @@ pub struct SerialUiPlugin;
 impl Plugin for SerialUiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin)
-            .insert_resource(ClearColor(Color::srgb(0.5, 0.5, 0.9)))
+            .insert_resource(ClearColor(Color::srgb(0.96875, 0.96875, 0.96875)))
             .insert_resource(Flag { flag: true })
             .insert_resource(Selected::default())
             .add_systems(Startup, ui_init)
@@ -69,8 +69,8 @@ fn ui_init(mut ctx: EguiContexts, _commands: Commands) {
     ctx.ctx_mut().set_fonts(fonts);
 
     ctx.ctx_mut().set_theme(egui::Theme::Light);
+    
 }
-
 
 
 /// serial settings ui
@@ -125,4 +125,7 @@ fn serial_ui(mut contexts: EguiContexts, mut serials: Query<&mut Serials>, mut c
                 ui.separator();
             });
         });
+    egui::CentralPanel::default().show(contexts.ctx_mut(), |ui| {
+        ui.label("主面板");
+    });
 }
