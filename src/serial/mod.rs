@@ -238,7 +238,7 @@ async fn wait_for_port_open(
                 if let Some(port) = open_port(port_settings).await {
                     return Ok(port);
                 } else {
-                    match tx1.send(PortChannelData::PortClose("open port failed".into())) {
+                    match tx1.send(PortChannelData::PortError(PorRWData{data:b"open port failed".to_vec()})) {
                         Ok(_) => {}
                         Err(e) => error!("发送端口关闭消息失败: {}", e),
                     }
@@ -276,7 +276,7 @@ fn spawn_read_thread(
             tokio::select! {
                 result = rx_shutdown.recv() => {
                     if let Ok(PortChannelData::PortClose(name)) = result {
-                        info!("Received close command, read thread exiting. port name: {}", name);
+                        info!("close serial port read thread: {}", name);
                         break;
                     }
                 }
@@ -315,11 +315,12 @@ async fn handle_write_thread(
                 PortChannelData::PortWrite(data) => {
                     info!("{} write : {:?}", port_name, data.data);
                     if write.write(&data.data).await.is_err() {
+                        info!("{} write error", port_name);
                         break;
                     }
                 }
                 PortChannelData::PortClose(name) => {
-                    info!("{} close serial port: {}", port_name, name);
+                    info!("close serial port write thread: {}", name);
                     tx1.send(PortChannelData::PortState(port::State::Close))
                         .unwrap();
                     break;
@@ -390,6 +391,12 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
                 },
                 PortChannelData::PortRead(data) => {
                     let mut file_data = b"[Read ]:    ".to_vec();
+                    file_data.extend(data.data);
+                    serial.data().write_source_file(&file_data);
+                }
+                PortChannelData::PortError(data) => {
+                    serial.error();
+                    let mut file_data = b"[Error]:    ".to_vec();
                     file_data.extend(data.data);
                     serial.data().write_source_file(&file_data);
                 }

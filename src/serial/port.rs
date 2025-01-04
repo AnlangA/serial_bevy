@@ -1,4 +1,3 @@
-use bevy::prelude::*;
 use log::{error, info};
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -84,8 +83,6 @@ impl Serial {
     pub fn close(&mut self) {
         self.data.state().close();
         self.thread_handle = None;
-        self.data.window = None;
-        self.data.camera = None;
     }
 
     /// is serial port close
@@ -93,14 +90,14 @@ impl Serial {
         self.data.state().is_close()
     }
 
-    /// get window entity
-    pub fn window(&mut self) -> &mut Option<Entity> {
-        &mut self.data.window
+    /// get error
+    pub fn error(&mut self) {
+        self.data.state().error();
     }
 
-    /// get camera entity
-    pub fn camera(&mut self) -> &mut Option<Entity> {
-        &mut self.data.camera
+    /// is error
+    pub fn is_error(&mut self) -> bool {
+        self.data.state().is_error()
     }
 }
 
@@ -257,10 +254,6 @@ pub struct PortData {
     state: State,
     /// serial port data type
     data_type: Type,
-    /// window entity
-    window: Option<Entity>,
-    /// camera entity
-    camera: Option<Entity>,
 }
 
 impl PortData {
@@ -272,8 +265,6 @@ impl PortData {
             cache_data: CacheData::new(),
             state: State::Close,
             data_type: Type::Utf8,
-            window: None,
-            camera: None,
         }
     }
 
@@ -367,16 +358,6 @@ impl PortData {
     pub fn data_type(&self) -> &Type {
         &self.data_type
     }
-
-    /// get window entity
-    pub fn window(&mut self) -> &mut Option<Entity> {
-        &mut self.window
-    }
-
-    /// get camera entity
-    pub fn camera(&mut self) -> &mut Option<Entity> {
-        &mut self.camera
-    }
 }
 
 /// file data
@@ -407,6 +388,11 @@ impl State {
         matches!(self, State::Close)
     }
 
+    /// is error
+    pub fn is_error(&self) -> bool {
+        matches!(self, State::Error)
+    }
+
     /// open serial port
     pub fn open(&mut self) {
         *self = State::Ready;
@@ -415,6 +401,11 @@ impl State {
     /// close serial port
     pub fn close(&mut self) {
         *self = State::Close;
+    }
+
+    /// set error
+    pub fn error(&mut self) {
+        *self = State::Error;
     }
 }
 

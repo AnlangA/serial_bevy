@@ -1,11 +1,7 @@
 use crate::serial::port::Serial;
 use crate::serial::*;
-use bevy::{
-    prelude::*,
-    render::camera::RenderTarget,
-    window::{PresentMode, WindowClosing, WindowRef, WindowResolution},
-};
-use bevy_egui::{EguiContext, EguiContexts, EguiPlugin, egui};
+use bevy::prelude::*;
+use bevy_egui::{egui, EguiContexts};
 use std::sync::MutexGuard;
 use tokio_serial::{DataBits, FlowControl, Parity, StopBits};
 
@@ -15,7 +11,9 @@ pub struct Selected {
 }
 impl Default for Selected {
     fn default() -> Self {
-        Self { selected: "".to_string() }
+        Self {
+            selected: "".to_string(),
+        }
     }
 }
 impl Selected {
@@ -31,21 +29,41 @@ impl Selected {
 }
 
 /// draw serial selector
-pub fn draw_select_serial_ui(ui: &mut egui::Ui, serials: &mut Serials, mut selected: &mut Selected, mut commands: Commands) {
+pub fn draw_select_serial_ui(
+    ui: &mut egui::Ui,
+    serials: &mut Serials,
+    mut selected: &mut Selected,
+) {
     for serial in serials.serial.iter_mut() {
         let mut serial = serial.lock().unwrap();
         ui.horizontal(|ui| {
-        if serial.is_open() {
-            if ui.selectable_label(selected.is_selected(&serial.set.port_name), egui::RichText::new(serial.set.port_name.clone()).color(egui::Color32::ORANGE).strong()).clicked(){
-                selected.select(&serial.set.port_name);
+            if serial.is_open() {
+                if ui
+                    .selectable_label(
+                        selected.is_selected(&serial.set.port_name),
+                        egui::RichText::new(serial.set.port_name.clone())
+                            .color(egui::Color32::ORANGE)
+                            .strong(),
+                    )
+                    .clicked()
+                {
+                    selected.select(&serial.set.port_name);
+                }
+            } else {
+                if ui
+                    .selectable_label(
+                        selected.is_selected(&serial.set.port_name),
+                        egui::RichText::new(serial.set.port_name.clone())
+                            .color(egui::Color32::GREEN)
+                            .strong(),
+                    )
+                    .clicked()
+                {
+                    selected.select(&serial.set.port_name);
+                }
             }
-        } else {
-            if ui.selectable_label(selected.is_selected(&serial.set.port_name), egui::RichText::new(serial.set.port_name.clone()).color(egui::Color32::GREEN).strong()).clicked(){
-                selected.select(&serial.set.port_name);
-            }
-        }
-        open_ui(ui, &mut serial, &mut commands, &mut selected);
-    });
+            open_ui(ui, &mut serial, &mut selected);
+        });
     }
 }
 
@@ -134,7 +152,11 @@ pub fn draw_parity_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Seria
     });
 }
 
-pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, commands: &mut Commands, selected: &mut Selected) {
+pub fn open_ui(
+    ui: &mut egui::Ui,
+    serial: &mut MutexGuard<'_, Serial>,
+    selected: &mut Selected,
+) {
     if serial.is_close() {
         if ui.button("打开").clicked() {
             selected.select(&serial.set.port_name);
@@ -157,12 +179,6 @@ pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, commands:
             selected.select(&serial.set.port_name);
             info!("关闭串口 {}", serial.set.port_name);
             let port_name = serial.set.port_name.clone();
-            match serial.window() {
-                Some(window) => {
-                    commands.entity(window.clone()).despawn_recursive();
-                }
-                None => {}
-            };
 
             if let Some(tx) = serial.tx_channel() {
                 match tx.send(port::PortChannelData::PortClose(port_name)) {
@@ -176,108 +192,40 @@ pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, commands:
     }
 }
 
-pub fn close_event_system(
-    mut window_close_events: EventReader<WindowClosing>,
-    mut serials: Query<&mut Serials>,
-) {
-    for event in window_close_events.read() {
-        let mut serial = serials.get_single_mut().unwrap();
-        for serial in serial.serial.iter_mut() {
-            let mut serial = serial.lock().unwrap();
-            let port_name = serial.set.port_name.clone();
-            if serial.is_open() {
-                if let Some(window) = serial.window() {
-                    if *window == event.window {
-                        if let Some(tx) = serial.tx_channel() {
-                            match tx.send(port::PortChannelData::PortClose(port_name)) {
-                                Ok(_) => {
-                                    info!("Send close port message");
-                                }
-                                Err(e) => error!("Failed to close port: {}", e),
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-pub fn serial_window(mut commands: Commands, mut serials: Query<&mut Serials>) {
-    let mut serials = serials.single_mut();
-    for serial in serials.serial.iter_mut() {
-        let mut serial = serial.lock().unwrap();
-        if serial.is_open() {
-            if let None = serial.window() {
-                let window_id = commands
-                    .spawn(Window {
-                        title: serial.set.port_name().to_owned(),
-                        resolution: WindowResolution::new(800.0, 600.0),
-                        present_mode: PresentMode::AutoVsync,
-                        ..Default::default()
-                    })
-                    .id();
-                // second window camera
-                let camera_id = commands
-                    .spawn((
-                        Camera3d::default(),
-                        Camera {
-                            target: RenderTarget::Window(WindowRef::Entity(window_id)),
-                            ..Default::default()
-                        },
-                        Transform::from_xyz(6.0, 0.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
-                    ))
-                    .id();
-                info!("{} window id: {}", serial.set.port_name(), window_id);
-                *serial.window() = Some(window_id);
-                *serial.camera() = Some(camera_id);
-            }
-        }
-    }
-}
-
-#[derive(Resource)]
-pub struct Flag {
-    pub flag: bool,
-}
-
-pub fn serial_window_ui(
-    mut commands: Commands,
-    mut egui_ctx: Query<&mut Serials>,
-    mut flag: ResMut<Flag>,
-    asset_server: Res<AssetServer>,
-) {
-    let mut serials = egui_ctx.single_mut();
-    for serial in serials.serial.iter_mut() {
-        let mut serial = serial.lock().unwrap();
-        if serial.camera().is_some() {
-            if flag.flag {
-                commands.spawn((
-                    Text::new("你好aaa"),
-                    TextFont {
-                        font: asset_server.load("fonts/STSong.ttf"),
-                        font_size: 100.0,
-                        ..default()
-                    },
-                    Transform::from_xyz(0.0, 0.0, 0.0),
-                    // Since we are using multiple cameras, we need to specify which camera UI should be rendered to
-                    TargetCamera(serial.camera().unwrap()),
-                ));
-
-                flag.flag = false;
-            }
-        }
-    }
-}
-
+/// draw serial setting ui
 pub fn draw_serial_setting_ui(ui: &mut egui::Ui, selected: &mut Selected) {
     ui.horizontal(|ui| {
         if selected.selected() != "" {
             ui.label("当前选中:");
             ui.label(selected.selected());
-        }else {
+        } else {
             ui.label("当前未选中串口");
         }
     });
     ui.separator();
+}
+
+/// draw serial context label ui
+pub fn draw_serial_context_label_ui(ui: &mut egui::Ui, selacted: &mut Selected,serial: &mut MutexGuard<'_, Serial>) {
+    if serial.is_open() {
+        if ui.selectable_label(selacted.is_selected(&serial.set.port_name), egui::RichText::new(format!("{}", serial.set.port_name))).clicked(){
+            selacted.select(&serial.set.port_name);
+        }
+    }
+}
+
+/// draw serial context ui
+pub fn draw_serial_context_ui(mut serials: Query<&mut Serials>, mut context: EguiContexts) {
+    let mut serials = serials.single_mut();
+    for serial in serials.serial.iter_mut() {
+        let mut serial = serial.lock().unwrap();
+        if serial.is_error() {  
+            egui::Window::new(format!("{}", serial.set.port_name) + "错误").show(context.ctx_mut(), |ui| {
+                ui.label(egui::RichText::new(format!("{} 错误", serial.set.port_name)).color(egui::Color32::RED).strong());
+                if ui.button("清除错误").clicked(){
+                    serial.close();
+                }
+            });
+        }
+    }
 }

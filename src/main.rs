@@ -1,11 +1,5 @@
-use bevy::window::WindowClosing;
-use bevy::{
-    prelude::*,
-    render::camera::RenderTarget,
-    window::{PresentMode, WindowRef, WindowResolution},
-};
+use bevy::prelude::*;
 
-use serial_bevy::screen::*;
 use serial_bevy::serial::*;
 use serial_bevy::serial_ui::*;
 use std::time::Duration;
@@ -32,7 +26,6 @@ fn setup(mut commands: Commands) {
 }
 
 fn send_serial_data(
-    mut commands: Commands,
     mut serials: Query<&mut Serials>,
     mut timer: ResMut<GameTimer>,
     time: Res<Time>,

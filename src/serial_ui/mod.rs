@@ -1,15 +1,8 @@
 pub mod ui;
 
-use crate::serial::port::Serial;
 use crate::serial::*;
-use bevy::{
-    prelude::*,
-    render::camera::RenderTarget,
-    window::{PresentMode, WindowClosing, WindowRef, WindowResolution},
-};
-use bevy_egui::{EguiContext, EguiContexts, EguiPlugin, egui};
-use std::sync::MutexGuard;
-use tokio_serial::{DataBits, FlowControl, Parity, StopBits};
+use bevy::prelude::*;
+use bevy_egui::{EguiContexts, EguiPlugin, egui};
 use ui::*;
 
 /// serial ui plugin
@@ -20,16 +13,13 @@ impl Plugin for SerialUiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin)
             .insert_resource(ClearColor(Color::srgb(0.96875, 0.96875, 0.96875)))
-            .insert_resource(Flag { flag: true })
             .insert_resource(Selected::default())
             .add_systems(Startup, ui_init)
             .add_systems(
                 Update,
                 (
                     serial_ui,
-                    serial_window,
-                    close_event_system,
-                    serial_window_ui,
+                    draw_serial_context_ui,
                 )
                     .chain(),
             );
@@ -69,13 +59,14 @@ fn ui_init(mut ctx: EguiContexts, _commands: Commands) {
     ctx.ctx_mut().set_fonts(fonts);
 
     ctx.ctx_mut().set_theme(egui::Theme::Light);
-    
 }
 
-
 /// serial settings ui
-fn serial_ui(mut contexts: EguiContexts, mut serials: Query<&mut Serials>, mut commands: Commands, mut selected: ResMut<Selected>) {
-    
+fn serial_ui(
+    mut contexts: EguiContexts,
+    mut serials: Query<&mut Serials>,
+    mut selected: ResMut<Selected>,
+) {
     egui::SidePanel::left("serial_ui")
         .resizable(false)
         .min_width(120.0)
@@ -86,7 +77,7 @@ fn serial_ui(mut contexts: EguiContexts, mut serials: Query<&mut Serials>, mut c
             });
             ui.separator();
             egui::ScrollArea::both().show(ui, |ui| {
-                draw_select_serial_ui(ui, &mut serials.single_mut(), selected.as_mut(), commands);
+                draw_select_serial_ui(ui, &mut serials.single_mut(), selected.as_mut());
             });
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 for serial in serials.single_mut().serial.iter_mut() {
@@ -102,8 +93,15 @@ fn serial_ui(mut contexts: EguiContexts, mut serials: Query<&mut Serials>, mut c
                 draw_serial_setting_ui(ui, selected.as_mut());
             });
         });
+
     egui::CentralPanel::default().show(contexts.ctx_mut(), |ui| {
-        ui.label("主面板");
+        ui.horizontal(|ui| {
+            let mut serials = serials.single_mut();
+            for serial in serials.serial.iter_mut() {
+                let mut serial = serial.lock().unwrap();
+                draw_serial_context_label_ui(ui, selected.as_mut(), &mut serial);
+            }
+        });
+        ui.separator();
     });
 }
-
