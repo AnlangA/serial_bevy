@@ -31,7 +31,7 @@ fn setup(
     let width = monitor.physical_width;
     // create a full screen rectangle
     commands.spawn(Sprite {
-        image: asset_server.load("壁纸.png"),
+        image: asset_server.load("images/壁纸.png"),
         custom_size: Some(Vec2::new(width as f32, height as f32)),
         ..default()
     });

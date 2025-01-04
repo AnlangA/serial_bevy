@@ -102,7 +102,6 @@ impl Serial {
     pub fn camera(&mut self) -> &mut Option<Entity> {
         &mut self.data.camera
     }
-
 }
 
 /// serial port settings

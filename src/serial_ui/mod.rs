@@ -5,7 +5,7 @@ use crate::serial::*;
 use bevy::{
     prelude::*,
     render::camera::RenderTarget,
-    window::{PresentMode, WindowClosing, WindowRef, WindowResolution,PrimaryWindow},
+    window::{PresentMode, PrimaryWindow, WindowClosing, WindowRef, WindowResolution},
 };
 use bevy_egui::{EguiContext, EguiContexts, EguiPlugin, egui};
 use std::sync::MutexGuard;
@@ -18,14 +18,24 @@ pub struct SerialUiPlugin;
 impl Plugin for SerialUiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin)
+            .insert_resource(ClearColor(Color::srgb(0.5, 0.5, 0.9)))
             .insert_resource(Flag { flag: true })
             .add_systems(Startup, ui_init)
-            .add_systems(Update, (serial_ui, serial_window, close_event_system, serial_window_ui).chain());
+            .add_systems(
+                Update,
+                (
+                    serial_ui,
+                    serial_window,
+                    close_event_system,
+                    serial_window_ui,
+                )
+                    .chain(),
+            );
     }
 }
 
 /// set theme
-fn ui_init(mut ctx: EguiContexts) {
+fn ui_init(mut ctx: EguiContexts, mut commands: Commands) {
     // Start with the default fonts (we will be adding to them rather than replacing thereplacing them).
     let mut fonts = egui::FontDefinitions::default();
 
@@ -33,7 +43,7 @@ fn ui_init(mut ctx: EguiContexts) {
     // .ttf and .otf files supported.
     fonts.font_data.insert(
         "Song".to_owned(),
-        egui::FontData::from_static(include_bytes!("../fonts/STSong.ttf")),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/STSong.ttf")),
     );
     fonts
         .families
@@ -241,14 +251,16 @@ fn serial_window(mut commands: Commands, mut serials: Query<&mut Serials>) {
                     })
                     .id();
                 // second window camera
-                let camera_id = commands.spawn((
-                    Camera3d::default(),
-                    Camera {
-                        target: RenderTarget::Window(WindowRef::Entity(window_id)),
-                        ..Default::default()
-                    },
-                    Transform::from_xyz(6.0, 0.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
-                )).id();
+                let camera_id = commands
+                    .spawn((
+                        Camera3d::default(),
+                        Camera {
+                            target: RenderTarget::Window(WindowRef::Entity(window_id)),
+                            ..Default::default()
+                        },
+                        Transform::from_xyz(6.0, 0.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+                    ))
+                    .id();
                 info!("{} window id: {}", serial.set.port_name(), window_id);
                 *serial.window() = Some(window_id);
                 *serial.camera() = Some(camera_id);
@@ -266,6 +278,7 @@ fn serial_window_ui(
     mut commands: Commands,
     mut egui_ctx: Query<&mut Serials>,
     mut flag: ResMut<Flag>,
+    asset_server: Res<AssetServer>,
 ) {
     let mut serials = egui_ctx.single_mut();
     for serial in serials.serial.iter_mut() {
@@ -273,10 +286,17 @@ fn serial_window_ui(
         if serial.camera().is_some() {
             if flag.flag {
                 commands.spawn((
-                    Text::new("First window"),
+                    Text::new("你好aaa"),
+                    TextFont {
+                        font: asset_server.load("fonts/STSong.ttf"),
+                        font_size: 100.0,
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, 0.0, 0.0),
                     // Since we are using multiple cameras, we need to specify which camera UI should be rendered to
                     TargetCamera(serial.camera().unwrap()),
                 ));
+
                 flag.flag = false;
             }
         }
