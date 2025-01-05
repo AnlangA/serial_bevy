@@ -229,6 +229,14 @@ impl CacheData {
 
     /// add history data
     pub fn add_history_data(&mut self, data: String) {
+        match self.history_data.last(){
+            Some(history_data) =>{
+                if history_data.to_owned() == data {
+                    return;
+                }
+            }
+            None => {}
+        }
         self.history_data.push(data);
         self.history_index = self.history_data.len();
     }
@@ -237,7 +245,6 @@ impl CacheData {
     pub fn add_history_index(&mut self) -> usize {
         if self.history_index < self.history_data.len() {
             self.history_index = self.history_index + 1;
-            info!("{}", self.history_index);
         }
         self.history_index
     }
@@ -246,7 +253,6 @@ impl CacheData {
     pub fn sub_history_index(&mut self) -> usize {
         if self.history_index > 1usize {
             self.history_index = self.history_index - 1;
-            info!("{}", self.history_index);
         }
         self.history_index
     }
