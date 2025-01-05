@@ -233,14 +233,42 @@ impl CacheData {
         self.history_index = self.history_data.len();
     }
 
-    /// get history data
-    pub fn get_history_data(&mut self, index: usize) -> &String {
-        if index >= self.history_data.len() {
-            self.history_index = self.history_data.len();
-        } else {
-            self.history_index = index;
+    /// add one to ['history_index']
+    pub fn add_history_index(&mut self) -> usize {
+        if self.history_index < self.history_data.len() {
+            self.history_index = self.history_index + 1;
+            info!("{}", self.history_index);
         }
-        &self.history_data[self.history_index]
+        self.history_index
+    }
+
+    /// subtract one to ['history_index']
+    pub fn sub_history_index(&mut self) -> usize {
+        if self.history_index > 1usize {
+            self.history_index = self.history_index - 1;
+            info!("{}", self.history_index);
+        }
+        self.history_index
+    }
+
+    /// get history data index
+    pub fn get_current_data_index(&self) -> usize {
+        self.history_index
+    }
+
+    /// get history data
+    pub fn get_history_data(&mut self, index: usize) -> String {
+        if self.history_data.len() == 0usize {
+            let no_history = String::new();
+            no_history
+        } else {
+            if index >= self.history_data.len() {
+                self.history_index = self.history_data.len();
+            } else {
+                self.history_index = index;
+            }
+            self.history_data[self.history_index - 1].clone()
+        }
     }
 
     /// get current data

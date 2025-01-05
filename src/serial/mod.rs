@@ -7,7 +7,6 @@ use log::info;
 use port::*;
 use std::fmt::Debug;
 use std::sync::Mutex;
-use tokio;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::broadcast;
 use tokio_serial::available_ports;

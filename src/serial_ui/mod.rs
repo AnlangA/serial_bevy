@@ -16,7 +16,13 @@ impl Plugin for SerialUiPlugin {
             .add_systems(Startup, ui_init)
             .add_systems(
                 Update,
-                (serial_ui, draw_serial_context_ui, send_cache_data).chain(),
+                (
+                    serial_ui,
+                    draw_serial_context_ui,
+                    send_cache_data,
+                    history_data_checkout,
+                )
+                    .chain(),
             );
     }
 }
@@ -164,13 +170,40 @@ fn send_cache_data(mut serials: Query<&mut Serials>) {
                     } else {
                         data = catch.replace('\r', "").replace('\n', "");
                     }
+                    let history_data = data.clone().replace('\r', "").replace('\n', "");
                     serial
                         .data()
                         .get_cache_data()
-                        .add_history_data(data.clone());
+                        .add_history_data(history_data);
                     serial.data().send_data(data);
                     serial.data().get_cache_data().clear_current_data();
                 }
+            }
+        }
+    }
+}
+
+/// history data checkout
+fn history_data_checkout(
+    mut serials: Query<&mut Serials>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    selected: ResMut<Selected>,
+) {
+    let mut serials = serials.single_mut();
+    for serial in serials.serial.iter_mut() {
+        let mut serial = serial.lock().unwrap();
+        if selected.is_selected(&serial.set.port_name) & serial.is_open() {
+            if keyboard_input.just_pressed(KeyCode::ArrowUp) {
+                serial.data().get_cache_data().sub_history_index();
+                let index = serial.data().get_cache_data().get_current_data_index();
+                *serial.data().get_cache_data().get_current_data() =
+                    serial.data().get_cache_data().get_history_data(index);
+            }
+            if keyboard_input.just_pressed(KeyCode::ArrowDown) {
+                serial.data().get_cache_data().add_history_index();
+                let index = serial.data().get_cache_data().get_current_data_index();
+                *serial.data().get_cache_data().get_current_data() =
+                    serial.data().get_cache_data().get_history_data(index);
             }
         }
     }
