@@ -1,7 +1,7 @@
-use bevy::prelude::*;
 use log::{error, info};
+use std::fmt;
 use std::fs::{File, OpenOptions};
-use std::io::{BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
@@ -84,8 +84,6 @@ impl Serial {
     pub fn close(&mut self) {
         self.data.state().close();
         self.thread_handle = None;
-        self.data.window = None;
-        self.data.camera = None;
     }
 
     /// is serial port close
@@ -93,14 +91,14 @@ impl Serial {
         self.data.state().is_close()
     }
 
-    /// get window entity
-    pub fn window(&mut self) -> &mut Option<Entity> {
-        &mut self.data.window
+    /// get error
+    pub fn error(&mut self) {
+        self.data.state().error();
     }
 
-    /// get camera entity
-    pub fn camera(&mut self) -> &mut Option<Entity> {
-        &mut self.data.camera
+    /// is error
+    pub fn is_error(&mut self) -> bool {
+        self.data.state().is_error()
     }
 }
 
@@ -236,13 +234,14 @@ impl CacheData {
         }
         &self.history_data[self.history_index]
     }
-    pub fn get_current_data(&self) -> &String {
-        &self.current_data
+    pub fn get_current_data(&mut self) -> &mut String {
+        &mut self.current_data
     }
     pub fn set_current_data(&mut self, data: String) {
         self.current_data = data;
     }
 }
+
 /// serial port data
 pub struct PortData {
     /// source file
@@ -257,10 +256,6 @@ pub struct PortData {
     state: State,
     /// serial port data type
     data_type: Type,
-    /// window entity
-    window: Option<Entity>,
-    /// camera entity
-    camera: Option<Entity>,
 }
 
 impl PortData {
@@ -272,19 +267,19 @@ impl PortData {
             cache_data: CacheData::new(),
             state: State::Close,
             data_type: Type::Utf8,
-            window: None,
-            camera: None,
         }
     }
 
     /// add receive file and add it's index
     pub fn add_source_file(&mut self, name: String) -> usize {
-        let file = OpenOptions::new()
+        let _ = OpenOptions::new()
             .create(true)
+            .write(true)
+            .read(true)
             .append(true)
-            .open(name)
+            .open(name.clone())
             .unwrap();
-        self.source_file.file.push(file);
+        self.source_file.file.push(name);
         self.source_file.file.len()
     }
 
@@ -294,25 +289,70 @@ impl PortData {
     }
 
     /// write data to last source file
-    pub fn write_source_file(&mut self, data: &[u8]) {
+    pub fn write_source_file(&mut self, data: &[u8], source: DataSource) {
+        let time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S.%3f").to_string();
+        let source = source.to_string();
+        let head = format!("[{}-{}]", time, source);
         let file = self.source_file.file.last().unwrap();
-        let mut write = BufWriter::new(file);
-        write.write_all(data).unwrap();
+        let file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open(file)
+            .unwrap();
+        let mut write = BufWriter::new(&file);
+        let mut combined = Vec::new();
+        combined.extend_from_slice(head.as_bytes());
+        combined.extend_from_slice(data);
+        write.write_all(&combined).unwrap();
         write.write_all(b"\n").unwrap();
         write.flush().unwrap();
     }
 
-    pub fn get_source_file(&self, index: usize) -> &File {
+    /// read current source file
+    pub fn read_current_source_file(&mut self) -> String {
+        match self.source_file.file.last() {
+            Some(file) => {
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .open(file)
+                    .unwrap();
+                let mut data = String::new();
+                file.read_to_string(&mut data).unwrap();
+                data
+            }
+            None => String::new(),
+        }
+    }
+
+    /// read source file
+    pub fn read_source_file(&self, index: usize) -> String {
+        match self.source_file.file.get(index) {
+            Some(file) => {
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .open(file)
+                    .unwrap();
+                let mut data = String::new();
+                file.read_to_string(&mut data).unwrap();
+                data
+            }
+            None => String::new(),
+        }
+    }
+
+    /// get source file name
+    pub fn get_source_file_name(&self, index: usize) -> &str {
         &self.source_file.file[index]
     }
+
     /// add parse file and add it's index
     pub fn add_parse_file(&mut self, name: String) -> usize {
-        let file = OpenOptions::new()
+        let _ = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(name)
+            .open(name.clone())
             .unwrap();
-        self.parse_file.file.push(file);
+        self.parse_file.file.push(name);
         self.parse_file.file.len()
     }
 
@@ -323,11 +363,36 @@ impl PortData {
 
     /// write data to last parse file
     pub fn write_parse_file(&mut self, data: &[u8]) {
-        let mut file = self.parse_file.file.last().unwrap();
-        file.write_all(data).unwrap();
+        let file = self.parse_file.file.last().unwrap();
+        let file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open(file)
+            .unwrap();
+        let mut write = BufWriter::new(&file);
+        write.write_all(data).unwrap();
+        write.write_all(b"\n").unwrap();
+        write.flush().unwrap();
     }
 
-    pub fn get_parse_file(&self, index: usize) -> &File {
+    /// read current parse file
+    pub fn read_current_parse_file(&mut self) -> String {
+        match self.parse_file.file.last() { 
+            Some(file) => {
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .open(file)
+                    .unwrap();
+                let mut data = String::new();
+                file.read_to_string(&mut data).unwrap();
+                data
+            }
+            None => String::new(),
+        }
+    }
+
+    /// get parse file name
+    pub fn get_parse_file_name(&self, index: usize) -> &str {
         &self.parse_file.file[index]
     }
 
@@ -364,25 +429,15 @@ impl PortData {
     }
 
     /// get data type
-    pub fn data_type(&self) -> &Type {
-        &self.data_type
-    }
-
-    /// get window entity
-    pub fn window(&mut self) -> &mut Option<Entity> {
-        &mut self.window
-    }
-
-    /// get camera entity
-    pub fn camera(&mut self) -> &mut Option<Entity> {
-        &mut self.camera
+    pub fn data_type(&mut self) -> &mut Type {
+        &mut self.data_type
     }
 }
 
 /// file data
 struct FileData {
     /// file
-    file: Vec<File>,
+    file: Vec<String>,
 }
 
 /// serial port state
@@ -407,6 +462,11 @@ impl State {
         matches!(self, State::Close)
     }
 
+    /// is error
+    pub fn is_error(&self) -> bool {
+        matches!(self, State::Error)
+    }
+
     /// open serial port
     pub fn open(&mut self) {
         *self = State::Ready;
@@ -416,10 +476,15 @@ impl State {
     pub fn close(&mut self) {
         *self = State::Close;
     }
+
+    /// set error
+    pub fn error(&mut self) {
+        *self = State::Error;
+    }
 }
 
 /// serial port data type
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     /// binary data
     Binary,
@@ -435,6 +500,49 @@ pub enum Type {
     GBK,
     /// gb2312 data
     ASCII,
+}
+
+/// 实现 Display trait 用于友好的字符串表示
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Type::Binary => write!(f, "二进制"),
+            Type::Hex => write!(f, "十六进制"),
+            Type::Utf8 => write!(f, "UTF-8"),
+            Type::Utf16 => write!(f, "UTF-16"),
+            Type::Utf32 => write!(f, "UTF-32"),
+            Type::GBK => write!(f, "GBK"),
+            Type::ASCII => write!(f, "ASCII"),
+        }
+    }
+}
+
+/// 可选：实现一个方法来获取英文描述
+impl Type {
+    pub fn as_str_en(&self) -> &'static str {
+        match self {
+            Type::Binary => "Binary",
+            Type::Hex => "Hexadecimal",
+            Type::Utf8 => "UTF-8",
+            Type::Utf16 => "UTF-16",
+            Type::Utf32 => "UTF-32",
+            Type::GBK => "GBK",
+            Type::ASCII => "ASCII",
+        }
+    }
+
+    /// 获取编码描述
+    pub fn description(&self) -> &'static str {
+        match self {
+            Type::Binary => "二进制数据格式",
+            Type::Hex => "十六进制数据格式",
+            Type::Utf8 => "UTF-8 文本编码",
+            Type::Utf16 => "UTF-16 文本编码",
+            Type::Utf32 => "UTF-32 文本编码",
+            Type::GBK => "GBK 中文编码",
+            Type::ASCII => "ASCII 文本编码",
+        }
+    }
 }
 
 /// serial port write and read data, used to communicate with different threads
@@ -469,6 +577,27 @@ impl Into<Vec<String>> for PortChannelData {
         match self {
             PortChannelData::PortName(names) => names,
             _ => Vec::new(),
+        }
+    }
+}
+
+/// data source
+pub enum DataSource {
+    /// write data
+    Write,
+    /// read data
+    Read,
+    /// error
+    Error,
+}
+
+/// implement Display for DataSource
+impl fmt::Display for DataSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DataSource::Write => write!(f, "写入"),
+            DataSource::Read => write!(f, "读取"),
+            DataSource::Error => write!(f, "错误"),
         }
     }
 }

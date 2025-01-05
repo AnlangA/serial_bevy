@@ -1,11 +1,5 @@
-use bevy::window::WindowClosing;
-use bevy::{
-    prelude::*,
-    render::camera::RenderTarget,
-    window::{PresentMode, WindowRef, WindowResolution},
-};
+use bevy::prelude::*;
 
-use serial_bevy::screen::*;
 use serial_bevy::serial::*;
 use serial_bevy::serial_ui::*;
 use std::time::Duration;
@@ -18,7 +12,6 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(SerialPlugin)
         .add_plugins(SerialUiPlugin)
-        .add_plugins(ScreenPlugin)
         .add_systems(Startup, setup)
         .add_systems(Update, send_serial_data)
         .run();
@@ -26,13 +19,12 @@ fn main() {
 
 fn setup(mut commands: Commands) {
     commands.insert_resource(GameTimer(Timer::new(
-        Duration::from_secs(2),
+        Duration::from_millis(20),
         TimerMode::Repeating,
     )));
 }
 
 fn send_serial_data(
-    mut commands: Commands,
     mut serials: Query<&mut Serials>,
     mut timer: ResMut<GameTimer>,
     time: Res<Time>,
