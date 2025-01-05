@@ -1,7 +1,7 @@
 use log::{error, info};
 use std::fmt;
 use std::fs::{File, OpenOptions};
-use std::io::{BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
@@ -241,6 +241,7 @@ impl CacheData {
         self.current_data = data;
     }
 }
+
 /// serial port data
 pub struct PortData {
     /// source file
@@ -271,12 +272,14 @@ impl PortData {
 
     /// add receive file and add it's index
     pub fn add_source_file(&mut self, name: String) -> usize {
-        let file = OpenOptions::new()
+        let _ = OpenOptions::new()
             .create(true)
+            .write(true)
+            .read(true)
             .append(true)
-            .open(name)
+            .open(name.clone())
             .unwrap();
-        self.source_file.file.push(file);
+        self.source_file.file.push(name);
         self.source_file.file.len()
     }
 
@@ -286,25 +289,70 @@ impl PortData {
     }
 
     /// write data to last source file
-    pub fn write_source_file(&mut self, data: &[u8]) {
+    pub fn write_source_file(&mut self, data: &[u8], source: DataSource) {
+        let time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S.%3f").to_string();
+        let source = source.to_string();
+        let head = format!("[{}-{}]", time, source);
         let file = self.source_file.file.last().unwrap();
-        let mut write = BufWriter::new(file);
-        write.write_all(data).unwrap();
+        let file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open(file)
+            .unwrap();
+        let mut write = BufWriter::new(&file);
+        let mut combined = Vec::new();
+        combined.extend_from_slice(head.as_bytes());
+        combined.extend_from_slice(data);
+        write.write_all(&combined).unwrap();
         write.write_all(b"\n").unwrap();
         write.flush().unwrap();
     }
 
-    pub fn get_source_file(&self, index: usize) -> &File {
+    /// read current source file
+    pub fn read_current_source_file(&mut self) -> String {
+        match self.source_file.file.last() {
+            Some(file) => {
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .open(file)
+                    .unwrap();
+                let mut data = String::new();
+                file.read_to_string(&mut data).unwrap();
+                data
+            }
+            None => String::new(),
+        }
+    }
+
+    /// read source file
+    pub fn read_source_file(&self, index: usize) -> String {
+        match self.source_file.file.get(index) {
+            Some(file) => {
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .open(file)
+                    .unwrap();
+                let mut data = String::new();
+                file.read_to_string(&mut data).unwrap();
+                data
+            }
+            None => String::new(),
+        }
+    }
+
+    /// get source file name
+    pub fn get_source_file_name(&self, index: usize) -> &str {
         &self.source_file.file[index]
     }
+
     /// add parse file and add it's index
     pub fn add_parse_file(&mut self, name: String) -> usize {
-        let file = OpenOptions::new()
+        let _ = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(name)
+            .open(name.clone())
             .unwrap();
-        self.parse_file.file.push(file);
+        self.parse_file.file.push(name);
         self.parse_file.file.len()
     }
 
@@ -315,11 +363,36 @@ impl PortData {
 
     /// write data to last parse file
     pub fn write_parse_file(&mut self, data: &[u8]) {
-        let mut file = self.parse_file.file.last().unwrap();
-        file.write_all(data).unwrap();
+        let file = self.parse_file.file.last().unwrap();
+        let file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open(file)
+            .unwrap();
+        let mut write = BufWriter::new(&file);
+        write.write_all(data).unwrap();
+        write.write_all(b"\n").unwrap();
+        write.flush().unwrap();
     }
 
-    pub fn get_parse_file(&self, index: usize) -> &File {
+    /// read current parse file
+    pub fn read_current_parse_file(&mut self) -> String {
+        match self.parse_file.file.last() { 
+            Some(file) => {
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .open(file)
+                    .unwrap();
+                let mut data = String::new();
+                file.read_to_string(&mut data).unwrap();
+                data
+            }
+            None => String::new(),
+        }
+    }
+
+    /// get parse file name
+    pub fn get_parse_file_name(&self, index: usize) -> &str {
         &self.parse_file.file[index]
     }
 
@@ -364,7 +437,7 @@ impl PortData {
 /// file data
 struct FileData {
     /// file
-    file: Vec<File>,
+    file: Vec<String>,
 }
 
 /// serial port state
@@ -504,6 +577,27 @@ impl Into<Vec<String>> for PortChannelData {
         match self {
             PortChannelData::PortName(names) => names,
             _ => Vec::new(),
+        }
+    }
+}
+
+/// data source
+pub enum DataSource {
+    /// write data
+    Write,
+    /// read data
+    Read,
+    /// error
+    Error,
+}
+
+/// implement Display for DataSource
+impl fmt::Display for DataSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DataSource::Write => write!(f, "写入"),
+            DataSource::Read => write!(f, "读取"),
+            DataSource::Error => write!(f, "错误"),
         }
     }
 }

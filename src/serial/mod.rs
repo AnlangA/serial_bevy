@@ -350,11 +350,8 @@ fn send_serial_data(mut serials: Query<&mut Serials>) {
             .iter()
             .flat_map(|d| d.as_bytes().iter().copied())
             .collect::<Vec<u8>>();
-        let mut file_data = String::from("[Write]:    ").as_bytes().to_vec();
-        file_data.append(&mut data.clone());
 
-        serial.data().write_source_file(&file_data);
-
+        serial.data().write_source_file(&data, DataSource::Write);
         if serial.is_open() {
             if let Some(tx) = serial.tx_channel() {
                 match tx.send(PortChannelData::PortWrite(PorRWData { data })) {
@@ -392,15 +389,11 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
                     _ => {}
                 },
                 PortChannelData::PortRead(data) => {
-                    let mut file_data = b"[Read ]:    ".to_vec();
-                    file_data.extend(data.data);
-                    serial.data().write_source_file(&file_data);
+                    serial.data().write_source_file(&data.data, DataSource::Read);
                 }
                 PortChannelData::PortError(data) => {
                     serial.error();
-                    let mut file_data = b"[Error]:    ".to_vec();
-                    file_data.extend(data.data);
-                    serial.data().write_source_file(&file_data);
+                    serial.data().write_source_file(&data.data, DataSource::Error);
                 }
                 _ => {}
             }

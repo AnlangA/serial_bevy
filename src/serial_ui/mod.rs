@@ -1,6 +1,5 @@
 pub mod ui;
-
-use crate::serial::{self, *};
+use crate::serial::*;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, egui};
 use ui::*;
@@ -88,16 +87,40 @@ fn serial_ui(
         });
 
     egui::CentralPanel::default().show(contexts.ctx_mut(), |ui| {
+        let mut serials = serials.single_mut();
         ui.horizontal(|ui| {
-            let mut serials = serials.single_mut();
             for serial in serials.serial.iter_mut() {
                 let mut serial = serial.lock().unwrap();
                 draw_serial_context_label_ui(ui, selected.as_mut(), &mut serial);
             }
         });
         ui.separator();
+        for serial in serials.serial.iter_mut() {
+            let mut serial = serial.lock().unwrap();
+            if selected.is_selected(&serial.set.port_name) {
+
+                let data = serial.data().read_current_source_file();
+                egui::ScrollArea::vertical()
+                    .min_scrolled_width(ui.available_width() - 20.)
+                    .max_width(ui.available_width() - 20.)
+                    .max_height(ui.available_height() - 100.)
+                    .stick_to_bottom(true)
+                    .auto_shrink(egui::Vec2b::FALSE)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add_space(20.);
+                            if data.is_empty() {
+                                ui.heading(egui::RichText::new(serial.set.port_name.clone() + "接收数据窗口").color(egui::Color32::GRAY));
+                            } else {
+                                ui.monospace(egui::RichText::new(data));
+                            }
+                        })
+                    });
+                
+            }
+        }
+
         ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-            let mut serials = serials.single_mut();
             for serial in serials.serial.iter_mut() {
                 let mut serial = serial.lock().unwrap();
                 if selected.is_selected(&serial.set.port_name) {
@@ -106,9 +129,11 @@ fn serial_ui(
                             serial.data().get_cache_data().get_current_data(),
                         )
                         .desired_width(ui.available_width())
+                        .desired_rows(4)
                         .code_editor(),
                     );
                     data_type_ui(ui, &mut serial);
+                    ui.separator();
                 }
             }
         });

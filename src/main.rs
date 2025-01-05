@@ -19,7 +19,7 @@ fn main() {
 
 fn setup(mut commands: Commands) {
     commands.insert_resource(GameTimer(Timer::new(
-        Duration::from_secs(2),
+        Duration::from_millis(20),
         TimerMode::Repeating,
     )));
 }
