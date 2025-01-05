@@ -238,7 +238,9 @@ async fn wait_for_port_open(
                 if let Some(port) = open_port(port_settings).await {
                     return Ok(port);
                 } else {
-                    match tx1.send(PortChannelData::PortError(PorRWData{data:b"open port failed".to_vec()})) {
+                    match tx1.send(PortChannelData::PortError(PorRWData {
+                        data: b"open port failed".to_vec(),
+                    })) {
                         Ok(_) => {}
                         Err(e) => error!("发送端口关闭消息失败: {}", e),
                     }

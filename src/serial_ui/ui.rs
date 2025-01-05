@@ -1,7 +1,7 @@
 use crate::serial::port::Serial;
 use crate::serial::*;
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{EguiContexts, egui};
 use std::sync::MutexGuard;
 use tokio_serial::{DataBits, FlowControl, Parity, StopBits};
 
@@ -152,11 +152,7 @@ pub fn draw_parity_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Seria
     });
 }
 
-pub fn open_ui(
-    ui: &mut egui::Ui,
-    serial: &mut MutexGuard<'_, Serial>,
-    selected: &mut Selected,
-) {
+pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, selected: &mut Selected) {
     if serial.is_close() {
         if ui.button("打开").clicked() {
             selected.select(&serial.set.port_name);
@@ -206,9 +202,19 @@ pub fn draw_serial_setting_ui(ui: &mut egui::Ui, selected: &mut Selected) {
 }
 
 /// draw serial context label ui
-pub fn draw_serial_context_label_ui(ui: &mut egui::Ui, selacted: &mut Selected,serial: &mut MutexGuard<'_, Serial>) {
+pub fn draw_serial_context_label_ui(
+    ui: &mut egui::Ui,
+    selacted: &mut Selected,
+    serial: &mut MutexGuard<'_, Serial>,
+) {
     if serial.is_open() {
-        if ui.selectable_label(selacted.is_selected(&serial.set.port_name), egui::RichText::new(format!("{}", serial.set.port_name))).clicked(){
+        if ui
+            .selectable_label(
+                selacted.is_selected(&serial.set.port_name),
+                egui::RichText::new(format!("{}", serial.set.port_name)),
+            )
+            .clicked()
+        {
             selacted.select(&serial.set.port_name);
         }
     }
@@ -219,13 +225,48 @@ pub fn draw_serial_context_ui(mut serials: Query<&mut Serials>, mut context: Egu
     let mut serials = serials.single_mut();
     for serial in serials.serial.iter_mut() {
         let mut serial = serial.lock().unwrap();
-        if serial.is_error() {  
-            egui::Window::new(format!("{}", serial.set.port_name) + "错误").show(context.ctx_mut(), |ui| {
-                ui.label(egui::RichText::new(format!("{} 错误", serial.set.port_name)).color(egui::Color32::RED).strong());
-                if ui.button("清除错误").clicked(){
-                    serial.close();
-                }
-            });
+        if serial.is_error() {
+            egui::Window::new(format!("{}", serial.set.port_name) + "错误").show(
+                context.ctx_mut(),
+                |ui| {
+                    ui.label(
+                        egui::RichText::new(format!("{} 错误", serial.set.port_name))
+                            .color(egui::Color32::RED)
+                            .strong(),
+                    );
+                    if ui.button("清除错误").clicked() {
+                        serial.close();
+                    }
+                },
+            );
         }
     }
+}
+
+pub fn data_type_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+        ui.horizontal(|ui| {
+            ui.add(egui::Label::new(egui::RichText::new("数据类型:")));
+            egui::ComboBox::from_id_salt(serial.set.port_name.clone() + "3")
+                .width(60f32)
+                .selected_text(serial.data().data_type().to_string())
+                .show_ui(ui, |ui| {
+                    for flow in [
+                        port::Type::Binary,
+                        port::Type::Hex,
+                        port::Type::Utf8,
+                        port::Type::Utf16,
+                        port::Type::Utf32,
+                        port::Type::GBK,
+                        port::Type::ASCII,
+                    ] {
+                        ui.selectable_value(
+                            serial.data().data_type(),
+                            flow,
+                            format!("{}", flow),
+                        );
+                    }
+                });
+        });
+    });
 }

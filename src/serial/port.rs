@@ -1,4 +1,5 @@
 use log::{error, info};
+use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use tokio::sync::broadcast;
@@ -233,8 +234,8 @@ impl CacheData {
         }
         &self.history_data[self.history_index]
     }
-    pub fn get_current_data(&self) -> &String {
-        &self.current_data
+    pub fn get_current_data(&mut self) -> &mut String {
+        &mut self.current_data
     }
     pub fn set_current_data(&mut self, data: String) {
         self.current_data = data;
@@ -355,8 +356,8 @@ impl PortData {
     }
 
     /// get data type
-    pub fn data_type(&self) -> &Type {
-        &self.data_type
+    pub fn data_type(&mut self) -> &mut Type {
+        &mut self.data_type
     }
 }
 
@@ -410,7 +411,7 @@ impl State {
 }
 
 /// serial port data type
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     /// binary data
     Binary,
@@ -426,6 +427,49 @@ pub enum Type {
     GBK,
     /// gb2312 data
     ASCII,
+}
+
+/// 实现 Display trait 用于友好的字符串表示
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Type::Binary => write!(f, "二进制"),
+            Type::Hex => write!(f, "十六进制"),
+            Type::Utf8 => write!(f, "UTF-8"),
+            Type::Utf16 => write!(f, "UTF-16"),
+            Type::Utf32 => write!(f, "UTF-32"),
+            Type::GBK => write!(f, "GBK"),
+            Type::ASCII => write!(f, "ASCII"),
+        }
+    }
+}
+
+/// 可选：实现一个方法来获取英文描述
+impl Type {
+    pub fn as_str_en(&self) -> &'static str {
+        match self {
+            Type::Binary => "Binary",
+            Type::Hex => "Hexadecimal",
+            Type::Utf8 => "UTF-8",
+            Type::Utf16 => "UTF-16",
+            Type::Utf32 => "UTF-32",
+            Type::GBK => "GBK",
+            Type::ASCII => "ASCII",
+        }
+    }
+
+    /// 获取编码描述
+    pub fn description(&self) -> &'static str {
+        match self {
+            Type::Binary => "二进制数据格式",
+            Type::Hex => "十六进制数据格式",
+            Type::Utf8 => "UTF-8 文本编码",
+            Type::Utf16 => "UTF-16 文本编码",
+            Type::Utf32 => "UTF-32 文本编码",
+            Type::GBK => "GBK 中文编码",
+            Type::ASCII => "ASCII 文本编码",
+        }
+    }
 }
 
 /// serial port write and read data, used to communicate with different threads

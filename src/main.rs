@@ -12,7 +12,6 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(SerialPlugin)
         .add_plugins(SerialUiPlugin)
-        //.add_plugins(ScreenPlugin)
         .add_systems(Startup, setup)
         .add_systems(Update, send_serial_data)
         .run();

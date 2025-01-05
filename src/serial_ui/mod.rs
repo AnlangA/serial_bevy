@@ -1,6 +1,6 @@
 pub mod ui;
 
-use crate::serial::*;
+use crate::serial::{self, *};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, egui};
 use ui::*;
@@ -15,14 +15,7 @@ impl Plugin for SerialUiPlugin {
             .insert_resource(ClearColor(Color::srgb(0.96875, 0.96875, 0.96875)))
             .insert_resource(Selected::default())
             .add_systems(Startup, ui_init)
-            .add_systems(
-                Update,
-                (
-                    serial_ui,
-                    draw_serial_context_ui,
-                )
-                    .chain(),
-            );
+            .add_systems(Update, (serial_ui, draw_serial_context_ui).chain());
     }
 }
 
@@ -103,5 +96,21 @@ fn serial_ui(
             }
         });
         ui.separator();
+        ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+            let mut serials = serials.single_mut();
+            for serial in serials.serial.iter_mut() {
+                let mut serial = serial.lock().unwrap();
+                if selected.is_selected(&serial.set.port_name) {
+                    ui.add(
+                        egui::TextEdit::multiline(
+                            serial.data().get_cache_data().get_current_data(),
+                        )
+                        .desired_width(ui.available_width())
+                        .code_editor(),
+                    );
+                    data_type_ui(ui, &mut serial);
+                }
+            }
+        });
     });
 }
