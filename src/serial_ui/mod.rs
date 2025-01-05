@@ -111,7 +111,7 @@ fn serial_ui(
                 egui::ScrollArea::vertical()
                     .min_scrolled_width(ui.available_width() - 20.)
                     .max_width(ui.available_width() - 20.)
-                    .max_height(ui.available_height() - 123.)
+                    .max_height(ui.available_height() - 127.)
                     .stick_to_bottom(true)
                     .auto_shrink(egui::Vec2b::FALSE)
                     .show(ui, |ui| {
