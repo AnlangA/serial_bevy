@@ -9,7 +9,7 @@ use std::fmt::Debug;
 use std::sync::Mutex;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::broadcast;
-use tokio_serial::available_ports;
+use tokio_serial::{available_ports, SerialPortType};
 
 /// runtime
 #[derive(Resource)]
@@ -121,9 +121,15 @@ fn init(mut commands: Commands) {
 fn spawn_serach_name(channel: Res<SerialNameChannel>, runtime: Res<Runtime>) {
     let tx = channel.tx_world2_serial.clone();
     runtime.rt.spawn(async move {
+        print!("{:?}",available_ports());
         loop {
             let port_names: Vec<String> = match available_ports() {
-                Ok(ports) => ports.into_iter().map(|p| p.port_name).collect(),
+                Ok(ports) => ports.into_iter().filter_map(|p| {
+                    match p.port_type {
+                        SerialPortType::UsbPort(_) => Some(p.port_name),
+                        _ => None,
+                    }
+                }).collect(),
                 Err(e) => {
                     info!("Error listing ports: {}", e);
                     Vec::<String>::new()
@@ -343,17 +349,18 @@ fn send_serial_data(mut serials: Query<&mut Serials>) {
         if data.is_empty() {
             continue;
         }
-
+        let file_data = data.join("\n");
         // convert data to u8, then convert to `port::Type`
-        let data = data
-            .iter()
-            .flat_map(|d| d.as_bytes().iter().copied())
-            .collect::<Vec<u8>>();
+        let mut data_vec_u8: Vec<u8> = vec![];
+        for string in data{
+            let data_u8 = translate_to_u8(string, serial.data().data_type().to_owned());
+            data_vec_u8.extend(data_u8);
+        }
 
-        serial.data().write_source_file(&data, DataSource::Write);
+        serial.data().write_source_file(file_data.as_bytes(), DataSource::Write);
         if serial.is_open() {
             if let Some(tx) = serial.tx_channel() {
-                match tx.send(PortChannelData::PortWrite(PorRWData { data })) {
+                match tx.send(PortChannelData::PortWrite(PorRWData { data: data_vec_u8 })) {
                     Ok(_) => {}
                     Err(e) => error!("Failed to send data: {}", e),
                 }
@@ -388,18 +395,65 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
                     _ => {}
                 },
                 PortChannelData::PortRead(data) => {
+                    let data = translate_to_string(data.data, serial.data().data_type().to_owned());
                     serial
                         .data()
-                        .write_source_file(&data.data, DataSource::Read);
+                        .write_source_file(data.as_bytes(), DataSource::Read);
                 }
                 PortChannelData::PortError(data) => {
+                    let data = translate_to_string(data.data, serial.data().data_type().to_owned());
                     serial.error();
                     serial
                         .data()
-                        .write_source_file(&data.data, DataSource::Error);
+                        .write_source_file(data.as_bytes(), DataSource::Error);
                 }
                 _ => {}
             }
         }
+    }
+}
+
+/// translate to u8
+fn translate_to_u8(source_data: String, translate_type: port::Type) -> Vec<u8>{
+    use regex::Regex;
+    match translate_type{
+        port::Type::Hex =>{
+            let re = Regex::new(r"[^0-9a-fA-F]").unwrap();
+            let hex_str = re.replace_all(source_data.as_str(), "");
+            let cleaned_hex = if hex_str.len() % 2 != 0 {
+                format!("0{}", hex_str)
+            } else {
+                hex_str.to_string()
+            };
+            let bytes_result: Result<Vec<u8>, _> = (0..cleaned_hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&cleaned_hex[i..i + 2], 16))
+                .collect();
+            match bytes_result {
+                Ok(bytes) => bytes,
+                Err(err) => {error!("{}",err); vec![]},
+            }
+        }
+        port::Type::Utf8 => {
+            source_data.into_bytes()
+        }
+        _ =>{
+            //TODO(anlada): more types need be suported
+            vec![]
+        }
+    }
+}
+
+/// translate to string
+fn translate_to_string(source_data: Vec<u8>, translate_type: port::Type) -> String{
+    use hex::encode;
+    match translate_type{
+        port::Type::Hex =>{
+            encode(source_data)
+        }
+        port::Type::Utf8 =>{
+            String::from_utf8_lossy(&source_data).replace('�', "❓")
+        }
+        _=> {String::new()}
     }
 }

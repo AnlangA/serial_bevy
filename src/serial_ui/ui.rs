@@ -152,6 +152,7 @@ pub fn draw_parity_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Seria
     });
 }
 
+/// draw open port button ui
 pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, selected: &mut Selected) {
     if serial.is_close() {
         if ui.button("打开").clicked() {
@@ -243,22 +244,24 @@ pub fn draw_serial_context_ui(mut serials: Query<&mut Serials>, mut context: Egu
     }
 }
 
+/// data type ui
+/// TODO(anlada):need surpot more types
 pub fn data_type_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     ui.add(egui::Label::new(egui::RichText::new("数据类型:")));
     egui::ComboBox::from_id_salt(serial.set.port_name.clone() + "3")
         .width(60f32)
-        .selected_text(serial.data().data_type().to_string())
+        .selected_text(serial.data().data_type().as_str_en())
         .show_ui(ui, |ui| {
-            for flow in [
-                port::Type::Binary,
+            for data_type in [
+                //port::Type::Binary,
                 port::Type::Hex,
                 port::Type::Utf8,
-                port::Type::Utf16,
-                port::Type::Utf32,
-                port::Type::GBK,
-                port::Type::ASCII,
+                //port::Type::Utf16,
+                //port::Type::Utf32,
+                //port::Type::GBK,
+                //port::Type::ASCII,
             ] {
-                ui.selectable_value(serial.data().data_type(), flow, format!("{}", flow));
+                ui.selectable_value(serial.data().data_type(), data_type, data_type.as_str_en());
             }
         });
 }

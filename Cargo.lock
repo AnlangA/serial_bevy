@@ -4238,6 +4238,7 @@ dependencies = [
  "env_logger",
  "hex",
  "log",
+ "regex",
  "tokio",
  "tokio-serial",
 ]

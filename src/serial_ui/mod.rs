@@ -111,7 +111,7 @@ fn serial_ui(
                 egui::ScrollArea::vertical()
                     .min_scrolled_width(ui.available_width() - 20.)
                     .max_width(ui.available_width() - 20.)
-                    .max_height(ui.available_height() - 100.)
+                    .max_height(ui.available_height() - 123.)
                     .stick_to_bottom(true)
                     .auto_shrink(egui::Vec2b::FALSE)
                     .show(ui, |ui| {
@@ -136,10 +136,12 @@ fn serial_ui(
             for serial in serials.serial.iter_mut() {
                 let mut serial = serial.lock().unwrap();
                 if selected.is_selected(&serial.set.port_name) {
+                    let font = egui::FontId::new(18.0, egui::FontFamily::Monospace);
                     ui.add(
                         egui::TextEdit::multiline(
                             serial.data().get_cache_data().get_current_data(),
                         )
+                        .font(font)
                         .desired_width(ui.available_width()),
                     );
                     ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
