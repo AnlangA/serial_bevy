@@ -244,29 +244,44 @@ pub fn draw_serial_context_ui(mut serials: Query<&mut Serials>, mut context: Egu
 }
 
 pub fn data_type_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
-    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-        ui.horizontal(|ui| {
-            ui.add(egui::Label::new(egui::RichText::new("数据类型:")));
-            egui::ComboBox::from_id_salt(serial.set.port_name.clone() + "3")
-                .width(60f32)
-                .selected_text(serial.data().data_type().to_string())
-                .show_ui(ui, |ui| {
-                    for flow in [
-                        port::Type::Binary,
-                        port::Type::Hex,
-                        port::Type::Utf8,
-                        port::Type::Utf16,
-                        port::Type::Utf32,
-                        port::Type::GBK,
-                        port::Type::ASCII,
-                    ] {
-                        ui.selectable_value(
-                            serial.data().data_type(),
-                            flow,
-                            format!("{}", flow),
-                        );
-                    }
-                });
+    ui.add(egui::Label::new(egui::RichText::new("数据类型:")));
+    egui::ComboBox::from_id_salt(serial.set.port_name.clone() + "3")
+        .width(60f32)
+        .selected_text(serial.data().data_type().to_string())
+        .show_ui(ui, |ui| {
+            for flow in [
+                port::Type::Binary,
+                port::Type::Hex,
+                port::Type::Utf8,
+                port::Type::Utf16,
+                port::Type::Utf32,
+                port::Type::GBK,
+                port::Type::ASCII,
+            ] {
+                ui.selectable_value(serial.data().data_type(), flow, format!("{}", flow));
+            }
         });
+}
+
+/// data line feed
+pub fn data_line_feed_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    ui.horizontal(|ui| {
+        if *serial.data().line_feed() {
+            if ui
+                .button("不换行")
+                .on_hover_text("发送的数据中不包含换行符")
+                .clicked()
+            {
+                *serial.data().line_feed() = false;
+            }
+        } else {
+            if ui
+                .button("换行")
+                .on_hover_text("发送的数据中包含换行符")
+                .clicked()
+            {
+                *serial.data().line_feed() = true;
+            }
+        }
     });
 }
