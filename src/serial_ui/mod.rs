@@ -14,7 +14,10 @@ impl Plugin for SerialUiPlugin {
             .insert_resource(ClearColor(Color::srgb(0.96875, 0.96875, 0.96875)))
             .insert_resource(Selected::default())
             .add_systems(Startup, ui_init)
-            .add_systems(Update, (serial_ui, draw_serial_context_ui).chain());
+            .add_systems(
+                Update,
+                (serial_ui, draw_serial_context_ui, send_cache_data).chain(),
+            );
     }
 }
 
@@ -98,7 +101,6 @@ fn serial_ui(
         for serial in serials.serial.iter_mut() {
             let mut serial = serial.lock().unwrap();
             if selected.is_selected(&serial.set.port_name) {
-
                 let data = serial.data().read_current_source_file();
                 egui::ScrollArea::vertical()
                     .min_scrolled_width(ui.available_width() - 20.)
@@ -110,13 +112,17 @@ fn serial_ui(
                         ui.horizontal(|ui| {
                             ui.add_space(20.);
                             if data.is_empty() {
-                                ui.heading(egui::RichText::new(serial.set.port_name.clone() + "接收数据窗口").color(egui::Color32::GRAY));
+                                ui.heading(
+                                    egui::RichText::new(
+                                        serial.set.port_name.clone() + "接收数据窗口",
+                                    )
+                                    .color(egui::Color32::GRAY),
+                                );
                             } else {
                                 ui.monospace(egui::RichText::new(data));
                             }
                         })
                     });
-                
             }
         }
 
@@ -128,14 +134,44 @@ fn serial_ui(
                         egui::TextEdit::multiline(
                             serial.data().get_cache_data().get_current_data(),
                         )
-                        .desired_width(ui.available_width())
-                        .desired_rows(4)
-                        .code_editor(),
+                        .desired_width(ui.available_width()),
                     );
-                    data_type_ui(ui, &mut serial);
+                    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                        ui.horizontal(|ui| {
+                            data_type_ui(ui, &mut serial);
+                            data_line_feed_ui(ui, &mut serial);
+                        });
+                    });
                     ui.separator();
                 }
             }
         });
     });
+}
+
+/// send cache data
+fn send_cache_data(mut serials: Query<&mut Serials>) {
+    for mut serials in serials.iter_mut() {
+        for serial in serials.serial.iter_mut() {
+            let mut serial = serial.lock().unwrap();
+            if serial.is_open() {
+                let catch = serial.data().get_cache_data().get_current_data().clone();
+                if catch.contains('\r') || catch.contains('\n') {
+                    #[allow(unused_assignments)]
+                    let mut data = String::new();
+                    if *serial.data().line_feed() {
+                        data = catch.to_string();
+                    } else {
+                        data = catch.replace('\r', "").replace('\n', "");
+                    }
+                    serial
+                        .data()
+                        .get_cache_data()
+                        .add_history_data(data.clone());
+                    serial.data().send_data(data);
+                    serial.data().get_cache_data().clear_current_data();
+                }
+            }
+        }
+    }
 }

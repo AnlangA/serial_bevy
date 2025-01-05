@@ -389,11 +389,15 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
                     _ => {}
                 },
                 PortChannelData::PortRead(data) => {
-                    serial.data().write_source_file(&data.data, DataSource::Read);
+                    serial
+                        .data()
+                        .write_source_file(&data.data, DataSource::Read);
                 }
                 PortChannelData::PortError(data) => {
                     serial.error();
-                    serial.data().write_source_file(&data.data, DataSource::Error);
+                    serial
+                        .data()
+                        .write_source_file(&data.data, DataSource::Error);
                 }
                 _ => {}
             }

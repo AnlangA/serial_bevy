@@ -1,7 +1,7 @@
 use log::{error, info};
 use std::fmt;
-use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::fs::OpenOptions;
+use std::io::{BufReader, BufWriter, Read, Write};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
@@ -208,13 +208,17 @@ pub async fn open_port(port_data: PortSettings) -> Option<SerialStream> {
         }
     }
 }
+
+/// cache data
 pub struct CacheData {
     pub history_data: Vec<String>,
     pub history_index: usize,
     pub current_data: String,
 }
 
+/// cache data implementation
 impl CacheData {
+    /// cache data initialization
     pub fn new() -> Self {
         CacheData {
             history_data: vec![],
@@ -222,10 +226,14 @@ impl CacheData {
             current_data: String::new(),
         }
     }
+
+    /// add history data
     pub fn add_history_data(&mut self, data: String) {
         self.history_data.push(data);
         self.history_index = self.history_data.len();
     }
+
+    /// get history data
     pub fn get_history_data(&mut self, index: usize) -> &String {
         if index >= self.history_data.len() {
             self.history_index = self.history_data.len();
@@ -234,11 +242,15 @@ impl CacheData {
         }
         &self.history_data[self.history_index]
     }
+
+    /// get current data
     pub fn get_current_data(&mut self) -> &mut String {
         &mut self.current_data
     }
-    pub fn set_current_data(&mut self, data: String) {
-        self.current_data = data;
+
+    /// clear current data
+    pub fn clear_current_data(&mut self) {
+        self.current_data.clear();
     }
 }
 
@@ -256,6 +268,8 @@ pub struct PortData {
     state: State,
     /// serial port data type
     data_type: Type,
+    /// line feed
+    line_feed: bool,
 }
 
 impl PortData {
@@ -267,6 +281,7 @@ impl PortData {
             cache_data: CacheData::new(),
             state: State::Close,
             data_type: Type::Utf8,
+            line_feed: false,
         }
     }
 
@@ -290,7 +305,9 @@ impl PortData {
 
     /// write data to last source file
     pub fn write_source_file(&mut self, data: &[u8], source: DataSource) {
-        let time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S.%3f").to_string();
+        let time = chrono::Local::now()
+            .format("%Y-%m-%d %H:%M:%S.%3f")
+            .to_string();
         let source = source.to_string();
         let head = format!("[{}-{}]", time, source);
         let file = self.source_file.file.last().unwrap();
@@ -303,8 +320,8 @@ impl PortData {
         let mut combined = Vec::new();
         combined.extend_from_slice(head.as_bytes());
         combined.extend_from_slice(data);
-        write.write_all(&combined).unwrap();
         write.write_all(b"\n").unwrap();
+        write.write_all(&combined).unwrap();
         write.flush().unwrap();
     }
 
@@ -312,12 +329,10 @@ impl PortData {
     pub fn read_current_source_file(&mut self) -> String {
         match self.source_file.file.last() {
             Some(file) => {
-                let mut file = OpenOptions::new()
-                    .read(true)
-                    .open(file)
-                    .unwrap();
+                let file = OpenOptions::new().read(true).open(file).unwrap();
                 let mut data = String::new();
-                file.read_to_string(&mut data).unwrap();
+                let mut reader = BufReader::new(&file);
+                reader.read_to_string(&mut data).unwrap();
                 data
             }
             None => String::new(),
@@ -328,10 +343,7 @@ impl PortData {
     pub fn read_source_file(&self, index: usize) -> String {
         match self.source_file.file.get(index) {
             Some(file) => {
-                let mut file = OpenOptions::new()
-                    .read(true)
-                    .open(file)
-                    .unwrap();
+                let mut file = OpenOptions::new().read(true).open(file).unwrap();
                 let mut data = String::new();
                 file.read_to_string(&mut data).unwrap();
                 data
@@ -377,12 +389,9 @@ impl PortData {
 
     /// read current parse file
     pub fn read_current_parse_file(&mut self) -> String {
-        match self.parse_file.file.last() { 
+        match self.parse_file.file.last() {
             Some(file) => {
-                let mut file = OpenOptions::new()
-                    .read(true)
-                    .open(file)
-                    .unwrap();
+                let mut file = OpenOptions::new().read(true).open(file).unwrap();
                 let mut data = String::new();
                 file.read_to_string(&mut data).unwrap();
                 data
@@ -431,6 +440,11 @@ impl PortData {
     /// get data type
     pub fn data_type(&mut self) -> &mut Type {
         &mut self.data_type
+    }
+
+    /// get line feed
+    pub fn line_feed(&mut self) -> &mut bool {
+        &mut self.line_feed
     }
 }
 
