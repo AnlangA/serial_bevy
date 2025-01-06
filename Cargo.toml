@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 bevy = { version = "0.15", features = [] }
-bevy_egui = "0.31"
+bevy_egui = "0.32"
 tokio-serial = "5.4"
 env_logger = "0.11"
 hex = "0.4"
@@ -13,3 +13,4 @@ log = "0.4"
 chrono = "0.4"
 tokio = {version = "1", features = ["full"]}
 regex = "1.11.1"
+zhipuai-rs = "0.1.2"

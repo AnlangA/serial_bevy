@@ -288,3 +288,19 @@ pub fn data_line_feed_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>)
         }
     });
 }
+
+pub fn llm_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    ui.horizontal(|ui| {
+        let llm_enable = serial.llm().enable().clone();
+        if llm_enable{
+            if ui.button("关闭LLM").clicked(){
+                *serial.llm().enable() = false;
+            }
+        }else{
+            if ui.button("开启LLM").clicked(){
+                *serial.llm().enable() = true;
+            }
+        }
+        
+    });
+}
