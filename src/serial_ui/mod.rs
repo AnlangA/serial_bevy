@@ -36,7 +36,7 @@ fn ui_init(mut ctx: EguiContexts, _commands: Commands) {
     // .ttf and .otf files supported.
     fonts.font_data.insert(
         "Song".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/STSong.ttf")),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/STSong.ttf")).into(),
     );
     fonts
         .families
@@ -57,6 +57,8 @@ fn ui_init(mut ctx: EguiContexts, _commands: Commands) {
         .or_default()
         .push("Song".to_owned());
     // Tell egui to use these fonts:
+
+    
     ctx.ctx_mut().set_fonts(fonts);
 
     ctx.ctx_mut().set_theme(egui::Theme::Light);
@@ -68,7 +70,7 @@ fn serial_ui(
     mut serials: Query<&mut Serials>,
     mut selected: ResMut<Selected>,
 ) {
-    egui::SidePanel::left("serial_ui")
+    egui::SidePanel::left("serial_ui_left")
         .resizable(false)
         .min_width(120.0)
         .max_width(120.0)
@@ -111,7 +113,7 @@ fn serial_ui(
                 egui::ScrollArea::vertical()
                     .min_scrolled_width(ui.available_width() - 20.)
                     .max_width(ui.available_width() - 20.)
-                    .max_height(ui.available_height() - 100.)
+                    .max_height(ui.available_height() - 127.)
                     .stick_to_bottom(true)
                     .auto_shrink(egui::Vec2b::FALSE)
                     .show(ui, |ui| {
@@ -136,23 +138,53 @@ fn serial_ui(
             for serial in serials.serial.iter_mut() {
                 let mut serial = serial.lock().unwrap();
                 if selected.is_selected(&serial.set.port_name) {
+                    let font = egui::FontId::new(18.0, egui::FontFamily::Monospace);
                     ui.add(
                         egui::TextEdit::multiline(
                             serial.data().get_cache_data().get_current_data(),
                         )
+                        .font(font)
                         .desired_width(ui.available_width()),
                     );
                     ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                         ui.horizontal(|ui| {
                             data_type_ui(ui, &mut serial);
                             data_line_feed_ui(ui, &mut serial);
+                            llm_ui(ui, &mut serial);
                         });
                     });
                     ui.separator();
                 }
             }
         });
+    
     });
+    let mut serials = serials.single_mut();
+    let (mut serial, llm_flag) = {
+        let mut result = (None, false); // 初始化返回值
+        for serial_ref in serials.serial.iter_mut() {
+            let mut serial = serial_ref.lock().unwrap();
+            if selected.is_selected(&serial.set.port_name) {
+                if serial.is_open() & *serial.llm().enable() {
+                    result = (Some(serial), true);
+                    break;
+                }
+            }
+        }
+        result
+    };
+    
+    if llm_flag{
+        let serial = serial.as_mut().unwrap();
+        egui::SidePanel::right("serial_ui_right")
+        .resizable(false)
+        .min_width(240.0)
+        .max_width(240.0)
+        .show(contexts.ctx_mut(), |ui|{
+            ui.label(serial.set.port_name.clone());
+        });
+    }
+    
 }
 
 /// send cache data

@@ -1,3 +1,4 @@
+use chat::data::Message;
 use log::{error, info};
 use std::fmt;
 use std::fs::OpenOptions;
@@ -6,6 +7,7 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio_serial::SerialPortBuilderExt;
+use zhipuai_rs::prelude::*;
 pub use tokio_serial::{DataBits, FlowControl, Parity, SerialPort, SerialStream, StopBits};
 
 /// serial port baud rate
@@ -22,6 +24,7 @@ pub struct Serial {
     thread_handle: Option<JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>>,
     tx_channel: Option<broadcast::Sender<PortChannelData>>,
     rx_channel: Option<broadcast::Receiver<PortChannelData>>,
+    llm: Llm,
 }
 
 /// serial port implementation
@@ -35,6 +38,7 @@ impl Serial {
             thread_handle: None,
             tx_channel: None,
             rx_channel: None,
+            llm: Llm::new(),
         }
     }
 
@@ -99,6 +103,11 @@ impl Serial {
     /// is error
     pub fn is_error(&mut self) -> bool {
         self.data.state().is_error()
+    }
+
+    /// get llm
+    pub fn llm(&mut self) -> &mut Llm {
+        &mut self.llm
     }
 }
 
@@ -229,6 +238,14 @@ impl CacheData {
 
     /// add history data
     pub fn add_history_data(&mut self, data: String) {
+        match self.history_data.last(){
+            Some(history_data) =>{
+                if history_data.to_owned() == data {
+                    return;
+                }
+            }
+            None => {}
+        }
         self.history_data.push(data);
         self.history_index = self.history_data.len();
     }
@@ -237,7 +254,6 @@ impl CacheData {
     pub fn add_history_index(&mut self) -> usize {
         if self.history_index < self.history_data.len() {
             self.history_index = self.history_index + 1;
-            info!("{}", self.history_index);
         }
         self.history_index
     }
@@ -246,7 +262,6 @@ impl CacheData {
     pub fn sub_history_index(&mut self) -> usize {
         if self.history_index > 1usize {
             self.history_index = self.history_index - 1;
-            info!("{}", self.history_index);
         }
         self.history_index
     }
@@ -641,5 +656,116 @@ impl fmt::Display for DataSource {
             DataSource::Read => write!(f, "读取"),
             DataSource::Error => write!(f, "错误"),
         }
+    }
+}
+
+/// Llm data
+pub struct Llm{
+    pub enable: bool,
+    pub key: String,
+    pub model: Model,
+    pub stored_message: Vec<Message>,
+    pub current_message: Vec<Message>,
+    pub file_name: Vec<String>,
+    pub state: LlmState,
+}
+
+impl Llm {
+    pub fn new() -> Self {
+        Self {
+            enable: false,
+            key: String::from("02e174e7b38643ab8bc3b4f839964f67.a4hccqYJNBXXzwp2"),
+            model: Model::GLM4Flash,
+            stored_message: vec![],
+            current_message: vec![],
+            file_name: vec![],
+            state: LlmState::default(),
+        }
+    }
+
+    /// get enable
+    pub fn enable(&mut self) -> &mut bool {
+        &mut self.enable
+    }
+
+    /// set key
+    pub fn set_key(&mut self, key: &str) {
+        self.key = key.to_string();
+    }
+
+    /// set model
+    pub fn set_model(&mut self, model: Model) {
+        self.model = model;
+    }
+
+    /// get model
+    pub fn get_model(&self) -> Model {
+        self.model.clone()
+    }
+
+    /// store message
+    pub fn store_message(&mut self, message: Message) {
+        self.stored_message.push(message);
+    }
+
+    /// get stored message
+    pub fn get_stored_message(&self) -> Vec<Message> {
+        self.stored_message.clone()
+    }
+
+    /// set current message
+    pub fn set_current_message(&mut self, message: Vec<Message>) {
+        self.current_message = message;
+    }
+
+    /// get current message
+    pub fn get_current_message(&self) -> Vec<Message> {
+        self.current_message.clone()
+    }
+
+    /// clear current message
+    pub fn clear_current_message(&mut self) {
+        self.current_message.clear();
+    }
+
+    /// store file name
+    pub fn set_file_name(&mut self, file_name: &str) {
+        self.file_name.push(file_name.to_string());
+    }
+}
+
+/// LLM state
+pub enum LlmState {
+    Ready,
+    Processing,
+    Error,
+}
+
+impl LlmState {
+
+    /// if State is ready
+    pub fn is_ready(&self) -> bool {
+        matches!(self, LlmState::Ready)
+    }
+
+    /// if State is processing
+    pub fn is_processing(&self) -> bool {
+        matches!(self, LlmState::Processing)
+    }
+
+    /// if State is error
+    pub fn is_error(&self) -> bool {
+        matches!(self, LlmState::Error)
+    }
+
+    /// set state
+    pub fn set_state(&mut self, state: LlmState) {
+        *self = state;
+    }
+}
+
+impl Default for LlmState {
+    fn default() -> Self {
+        LlmState::Ready
     }
 }
