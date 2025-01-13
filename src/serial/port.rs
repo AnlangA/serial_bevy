@@ -1,4 +1,3 @@
-use chat::data::Message;
 use log::{error, info};
 use std::fmt;
 use std::fs::OpenOptions;
@@ -7,7 +6,10 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio_serial::SerialPortBuilderExt;
-use zhipuai_rs::prelude::*;
+
+use zhipuai_rs::{prelude::*, simple_message};
+use chat::data::{Message, Messages};
+
 pub use tokio_serial::{DataBits, FlowControl, Parity, SerialPort, SerialStream, StopBits};
 
 /// serial port baud rate
@@ -260,7 +262,7 @@ impl CacheData {
 
     /// subtract one to ['history_index']
     pub fn sub_history_index(&mut self) -> usize {
-        if self.history_index > 1usize {
+        if self.history_index >= 1usize {
             self.history_index = self.history_index - 1;
         }
         self.history_index
@@ -282,7 +284,10 @@ impl CacheData {
             } else {
                 self.history_index = index;
             }
-            self.history_data[self.history_index - 1].clone()
+            if self.history_index >= self.history_data.len() {
+                self.history_index = self.history_data.len() - 1;
+            }
+            self.history_data[self.history_index].clone()
         }
     }
 
@@ -664,20 +669,22 @@ pub struct Llm{
     pub enable: bool,
     pub key: String,
     pub model: Model,
-    pub stored_message: Vec<Message>,
-    pub current_message: Vec<Message>,
+    pub stored_message: Messages,
+    pub current_message: Messages,
     pub file_name: Vec<String>,
     pub state: LlmState,
 }
 
 impl Llm {
     pub fn new() -> Self {
+        use zhipuai_rs::api_resource::chat::data::*;
         Self {
             enable: false,
-            key: String::from("02e174e7b38643ab8bc3b4f839964f67.a4hccqYJNBXXzwp2"),
+            key: String::new(),
             model: Model::GLM4Flash,
-            stored_message: vec![],
-            current_message: vec![],
+            stored_message: Messages::new(),
+            current_message: Messages::new().add_message(simple_message!(Role::System, "你是日志分析专家"))
+                            .add_message(simple_message!(Role::User, "准备好分析我给你发的日志")),
             file_name: vec![],
             state: LlmState::default(),
         }
@@ -705,29 +712,32 @@ impl Llm {
 
     /// store message
     pub fn store_message(&mut self, message: Message) {
-        self.stored_message.push(message);
+        self.stored_message = self.stored_message.clone().add_message(message);
     }
 
     /// get stored message
-    pub fn get_stored_message(&self) -> Vec<Message> {
-        self.stored_message.clone()
+    pub fn get_stored_message(&self) -> String {
+        self.stored_message.to_string().clone()
+    }
+
+    pub fn get_stored_message_vec(&self) -> Vec<Message> {
+        self.stored_message.messages.clone()
     }
 
     /// set current message
-    pub fn set_current_message(&mut self, message: Vec<Message>) {
+    pub fn set_current_message(&mut self, message: Messages) {
         self.current_message = message;
     }
 
     /// get current message
-    pub fn get_current_message(&self) -> Vec<Message> {
+    pub fn get_current_message(&self) -> Messages {
         self.current_message.clone()
     }
 
     /// clear current message
     pub fn clear_current_message(&mut self) {
-        self.current_message.clear();
+        self.current_message.messages.clear();
     }
-
     /// store file name
     pub fn set_file_name(&mut self, file_name: &str) {
         self.file_name.push(file_name.to_string());

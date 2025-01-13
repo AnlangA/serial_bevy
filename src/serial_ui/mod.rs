@@ -1,7 +1,8 @@
 pub mod ui;
 use crate::serial::*;
 use bevy::prelude::*;
-use bevy_egui::{EguiContexts, EguiPlugin, egui};
+use bevy_egui::{egui::{self, RichText}, EguiContexts, EguiPlugin};
+use epaint::text::{FontInsert, InsertFontFamily};
 use ui::*;
 
 /// serial ui plugin
@@ -30,36 +31,23 @@ impl Plugin for SerialUiPlugin {
 /// set theme
 fn ui_init(mut ctx: EguiContexts, _commands: Commands) {
     // Start with the default fonts (we will be adding to them rather than replacing thereplacing them).
-    let mut fonts = egui::FontDefinitions::default();
 
-    // Install my own font (maybe supporting non-latin characters).
-    // .ttf and .otf files supported.
-    fonts.font_data.insert(
-        "Song".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/STSong.ttf")).into(),
-    );
-    fonts
-        .families
-        .insert(egui::FontFamily::Name("Song".into()), vec![
-            "Song".to_owned(),
-        ]);
-    // Put my font first (highest priority) for proportional text:
-    fonts
-        .families
-        .entry(egui::FontFamily::Proportional)
-        .or_default()
-        .insert(0, "Song".to_owned());
-
-    // Put my font as last fallback for monospace:
-    fonts
-        .families
-        .entry(egui::FontFamily::Monospace)
-        .or_default()
-        .push("Song".to_owned());
-    // Tell egui to use these fonts:
-
-    
-    ctx.ctx_mut().set_fonts(fonts);
+    ctx.ctx_mut().add_font(FontInsert::new(
+        "Song",
+        egui::FontData::from_static(include_bytes!(
+            "../../assets/fonts/STSong.ttf"
+        )),
+        vec![
+            InsertFontFamily {
+                family: egui::FontFamily::Proportional,
+                priority: egui::epaint::text::FontPriority::Highest,
+            },
+            InsertFontFamily {
+                family: egui::FontFamily::Monospace,
+                priority: egui::epaint::text::FontPriority::Lowest,
+            },
+        ],
+    ));
 
     ctx.ctx_mut().set_theme(egui::Theme::Light);
 }
@@ -181,7 +169,44 @@ fn serial_ui(
         .min_width(240.0)
         .max_width(240.0)
         .show(contexts.ctx_mut(), |ui|{
-            ui.label(serial.set.port_name.clone());
+            let datas = serial.llm().get_stored_message_vec();
+            egui::ScrollArea::vertical()
+                    .min_scrolled_width(ui.available_width() - 20.)
+                    .max_width(ui.available_width() - 20.)
+                    .max_height(ui.available_height() - 127.)
+                    .stick_to_bottom(true)
+                    .auto_shrink(egui::Vec2b::FALSE)
+                    .show(ui, |ui| {
+                        let mut index = 0usize;
+                        for data in datas{
+                            index += 1;
+                            if index % 2 == 0 {
+                                ui.add(egui::Label::new(RichText::new(data.to_string()).color(egui::Color32::RED)));
+                            }else{
+                                ui.add(egui::Label::new(RichText::new(data.to_string()).color(egui::Color32::GREEN)));
+                            }
+                        }
+                    });
+            if ui.button("hi").clicked(){
+                info!("LLM button");
+            }
+            let font = egui::FontId::proportional(14.);
+            egui::ScrollArea::vertical().id_salt("llm input")
+                    .min_scrolled_width(ui.available_width())
+                    .max_width(ui.available_width())
+                    .max_height(ui.available_height())
+                    .stick_to_bottom(true)
+                    .auto_shrink(egui::Vec2b::FALSE)
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::multiline(
+                                serial.data().get_cache_data().get_current_data(),
+                            )
+                            .font(font)
+                            .desired_rows(5)
+                            .desired_width(ui.available_width()),
+                        );
+                    });
         });
     }
     
@@ -228,6 +253,7 @@ fn history_data_checkout(
             if keyboard_input.just_pressed(KeyCode::ArrowUp) {
                 serial.data().get_cache_data().sub_history_index();
                 let index = serial.data().get_cache_data().get_current_data_index();
+                info!("index: {}", index);
                 *serial.data().get_cache_data().get_current_data() =
                     serial.data().get_cache_data().get_history_data(index);
             }
