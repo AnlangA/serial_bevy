@@ -673,6 +673,9 @@ pub struct Llm{
     pub current_message: Messages,
     pub file_name: Vec<String>,
     pub state: LlmState,
+    pub thread_handle: Option<JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>>,
+    pub tx_channel: Option<broadcast::Sender<PortChannelData>>,
+    pub rx_channel: Option<broadcast::Receiver<PortChannelData>>,
 }
 
 impl Llm {
