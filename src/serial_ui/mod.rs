@@ -110,7 +110,7 @@ fn serial_ui(
             let mut serial = serial.lock().unwrap();
             if selected.is_selected(&serial.set.port_name) {
                 let data = serial.data().read_current_source_file();
-                egui::ScrollArea::vertical()
+                egui::ScrollArea::both()
                     .min_scrolled_width(ui.available_width() - 20.)
                     .max_width(ui.available_width() - 20.)
                     .max_height(ui.available_height() - 127.)
