@@ -43,18 +43,12 @@ pub fn draw_select_serial_ui(ui: &mut egui::Ui, serials: &mut Serials, selected:
             continue;
         };
         ui.horizontal(|ui| {
-            let color = if serial.is_open() {
-                egui::Color32::ORANGE
-            } else {
-                egui::Color32::GREEN
-            };
+            // Removed custom color usage; default theme color will be applied.
 
             if ui
                 .selectable_label(
                     selected.is_selected(&serial.set.port_name),
-                    egui::RichText::new(&serial.set.port_name)
-                        .color(color)
-                        .strong(),
+                    egui::RichText::new(&serial.set.port_name).strong(),
                 )
                 .clicked()
             {
