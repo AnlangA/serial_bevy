@@ -79,10 +79,7 @@ fn load_panel_widths(mut commands: Commands) {
 }
 
 /// System: save panel widths when app is exiting.
-fn save_panel_widths_on_exit(
-    panel_widths: Res<PanelWidths>,
-    mut exit_events: EventReader<AppExit>,
-) {
+fn save_panel_widths_on_exit(panel_widths: Res<PanelWidths>, exit_events: MessageReader<AppExit>) {
     if !exit_events.is_empty() {
         save_panel_widths_to_disk(&panel_widths);
     }
@@ -188,7 +185,7 @@ fn serial_ui(
 
             // Bottom anchored settings block
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                ui.separator();
+                ui.add_space(20.0);
                 for serial in &mut serials_data.serial {
                     let Ok(mut serial) = serial.lock() else {
                         continue;
