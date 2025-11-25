@@ -389,17 +389,35 @@ impl PortData {
         }
     }
 
-    /// Adds a source file and returns the new file count.
+    /// Adds a source file for logging under the relative `logs/` directory and returns the new file count.
+    ///
+    /// Sanitization rules:
+    /// - Leading `/` or `\` is stripped (prevents absolute paths).
+    /// - Inner `/` or `\` are replaced with `_`.
+    /// The final stored path is always `logs/<sanitized_name>`.
+    /// On failure to create the file, an error is logged but the path is still recorded.
     pub fn add_source_file(&mut self, name: String) -> usize {
+        // Ensure logs directory exists (best-effort; ignore errors here).
+        let _ = std::fs::create_dir_all("logs");
+
+        // Sanitize user-provided file name (e.g. "/dev/ttyUSB0_20250101_010101.txt").
+        let sanitized = name
+            .trim_start_matches('/')
+            .trim_start_matches('\\')
+            .replace(['/', '\\'], "_");
+
+        let path = format!("logs/{sanitized}");
+
         if let Err(e) = OpenOptions::new()
             .create(true)
             .read(true)
             .append(true)
-            .open(&name)
+            .open(&path)
         {
-            error!("Failed to create source file {name}: {e}");
+            error!("Failed to create source file {path}: {e}");
         }
-        self.source_file.file.push(name);
+
+        self.source_file.file.push(path);
         self.source_file.file.len()
     }
 

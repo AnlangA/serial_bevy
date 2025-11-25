@@ -11,28 +11,7 @@ categories = ["gui", "hardware-support"]
 
 [dependencies]
 # Bevy game engine and UI
-bevy = { version = "0.17", default-features = false, features = [
-    "bevy_asset",
-    "bevy_color",
-    "bevy_core_pipeline",
-    "bevy_gilrs",
-    "bevy_gizmos",
-    "bevy_gltf",
-    "bevy_log",
-    "bevy_pbr",
-    "bevy_picking",
-    "bevy_render",
-    "bevy_sprite",
-    "bevy_state",
-    "bevy_text",
-    "bevy_ui",
-    "bevy_winit",
-    "default_font",
-    "multi_threaded",
-    "png",
-    "wayland",
-    "x11",
-] }
+bevy = { version = "0.17"}
 bevy_egui = "0.38"
 
 # Async runtime and serial communication
