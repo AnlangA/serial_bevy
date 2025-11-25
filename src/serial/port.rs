@@ -434,9 +434,9 @@ impl PortData {
         };
 
         let time = chrono::Local::now()
-            .format("%Y-%m-%d %H:%M:%S.%3f")
+            .format("%Y%m%d %H:%M:%S.%3f")
             .to_string();
-        let head = format!("[{time}-{source}]");
+        let head = format!("[{time} {source}]");
 
         if let Ok(file) = OpenOptions::new().append(true).open(file_path) {
             let mut writer = BufWriter::new(file);
@@ -757,9 +757,9 @@ pub enum DataSource {
 impl fmt::Display for DataSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Write => write!(f, "Write"),
-            Self::Read => write!(f, "Read"),
-            Self::Error => write!(f, "Error"),
+            Self::Write => write!(f, "T"),
+            Self::Read => write!(f, "R"),
+            Self::Error => write!(f, "E"),
         }
     }
 }
