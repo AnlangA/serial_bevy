@@ -121,25 +121,30 @@ fn ui_init(mut ctx: EguiContexts) {
         return;
     };
 
+    // Try to load font from runtime path; gracefully fallback to defaults if missing.
     let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert(
-        "Song".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/STSong.ttf")).into(),
-    );
-    fonts.families.insert(
-        egui::FontFamily::Name("Song".into()),
-        vec!["Song".to_owned()],
-    );
-    fonts
-        .families
-        .entry(egui::FontFamily::Proportional)
-        .or_default()
-        .insert(0, "Song".to_owned());
-    fonts
-        .families
-        .entry(egui::FontFamily::Monospace)
-        .or_default()
-        .push("Song".to_owned());
+    let song_bytes = std::fs::read("assets/fonts/STSong.ttf").ok();
+
+    if let Some(bytes) = song_bytes {
+        fonts
+            .font_data
+            .insert("Song".to_owned(), egui::FontData::from_owned(bytes).into());
+        // Register "Song" family and prefer it for proportional and monospace.
+        fonts.families.insert(
+            egui::FontFamily::Name("Song".into()),
+            vec!["Song".to_owned()],
+        );
+        fonts
+            .families
+            .entry(egui::FontFamily::Proportional)
+            .or_default()
+            .insert(0, "Song".to_owned());
+        fonts
+            .families
+            .entry(egui::FontFamily::Monospace)
+            .or_default()
+            .insert(0, "Song".to_owned());
+    }
 
     ctx.set_fonts(fonts);
     ctx.set_theme(egui::Theme::Light);
