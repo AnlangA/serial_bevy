@@ -1,96 +1,148 @@
+//! # Serial Module
+//!
+//! This module provides the core serial port communication functionality.
+//! It includes:
+//!
+//! - Port discovery and management
+//! - Async read/write operations
+//! - Data encoding/decoding (Hex, UTF-8)
+//! - Thread-safe communication channels
+
 pub mod data;
+pub mod encoding;
 pub mod port;
 
 use bevy::prelude::*;
 use data::SerialNameChannel;
-use log::info;
-use port::*;
-use std::fmt::Debug;
+use log::{error, info};
 use std::sync::Mutex;
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::broadcast;
-use tokio_serial::{available_ports, SerialPortType};
+use tokio_serial::{SerialPortType, available_ports};
 
-/// runtime
+use crate::error::SerialBevyError;
+
+// Re-exports for convenience
+pub use encoding::*;
+pub use port::*;
+
+/// Tokio runtime resource for async operations.
+///
+/// This resource wraps the Tokio runtime to enable async operations
+/// within the Bevy ECS framework.
 #[derive(Resource)]
 pub struct Runtime {
+    /// The Tokio runtime instance.
     rt: tokio::runtime::Runtime,
 }
 
-/// runtime implementation
 impl Runtime {
+    /// Creates a new Runtime instance.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the Tokio runtime cannot be created.
+    #[must_use]
     pub fn init() -> Self {
         Self {
-            rt: tokio::runtime::Runtime::new().unwrap(),
+            rt: tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime"),
         }
+    }
+
+    /// Spawns an async task on the runtime.
+    pub fn spawn<F>(&self, future: F) -> tokio::task::JoinHandle<F::Output>
+    where
+        F: std::future::Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.rt.spawn(future)
     }
 }
 
-/// serial ports
+impl Default for Runtime {
+    fn default() -> Self {
+        Self::init()
+    }
+}
+
+/// Container for managing multiple serial ports.
+///
+/// This component holds a collection of serial port instances,
+/// each protected by a mutex for thread-safe access.
 #[derive(Component)]
 pub struct Serials {
+    /// Vector of mutex-protected serial port instances.
     pub serial: Vec<Mutex<Serial>>,
 }
 
-/// serial ports debug
-impl Debug for Serials {
+impl std::fmt::Debug for Serials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut s = String::new();
-        for serial in self.serial.iter() {
-            s.push_str(&format!(
-                "name: {:?} ",
-                serial.lock().unwrap().set.port_name
-            ));
-            s.push_str(&format!(
-                "baud_rate: {:?} ",
-                serial.lock().unwrap().set.baud_rate
-            ));
-            s.push_str(&format!(
-                "data_bits: {:?} ",
-                serial.lock().unwrap().set.data_bits
-            ));
-            s.push_str(&format!(
-                "stop_bits: {:?} ",
-                serial.lock().unwrap().set.stop_bits
-            ));
-            s.push_str(&format!("parity: {:?} ", serial.lock().unwrap().set.parity));
-            s.push_str(&format!(
-                "flow_control: {:?} ",
-                serial.lock().unwrap().set.flow_control
-            ));
-            s.push_str(&format!(
-                "timeout: {:?} ",
-                serial.lock().unwrap().set.timeout
-            ));
-            s.push_str("\n");
+        let mut debug = f.debug_list();
+        for serial in &self.serial {
+            if let Ok(s) = serial.lock() {
+                debug.entry(&format!("{}: {}bps", s.set.port_name, s.set.baud_rate));
+            }
         }
-        write!(f, "{}", s)
+        debug.finish()
     }
 }
 
-/// serial ports implementation
+impl Default for Serials {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Serials {
-    /// serial ports initialization
-    pub fn new() -> Self {
-        Serials { serial: vec![] }
+    /// Creates a new empty Serials container.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { serial: vec![] }
     }
 
-    /// add serial port
+    /// Adds a serial port to the container.
     pub fn add(&mut self, serial: Serial) {
         self.serial.push(Mutex::new(serial));
     }
 
-    /// remove serial port
+    /// Removes a serial port at the specified index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
     pub fn remove(&mut self, index: usize) {
         self.serial.remove(index);
     }
 
-    /// get serial port
+    /// Gets a reference to the mutex-protected serial port at the specified index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    #[must_use]
     pub fn get(&self, index: usize) -> &Mutex<Serial> {
         &self.serial[index]
     }
+
+    /// Returns the number of serial ports.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.serial.len()
+    }
+
+    /// Returns true if there are no serial ports.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.serial.is_empty()
+    }
 }
 
+/// The main serial communication plugin.
+///
+/// This plugin provides:
+/// - Serial port discovery
+/// - Async read/write operations
+/// - Port state management
 #[derive(Default)]
 pub struct SerialPlugin;
 
@@ -98,12 +150,12 @@ impl Plugin for SerialPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Runtime::init())
             .insert_resource(SerialNameChannel::init())
-            .add_systems(Startup, (init, spawn_serach_name))
+            .add_systems(Startup, (init_serial_components, spawn_port_discovery))
             .add_systems(
                 Update,
                 (
-                    update_serial_port_name,
-                    create_serial_port_thread,
+                    update_serial_port_names,
+                    create_serial_port_threads,
                     send_serial_data,
                     receive_serial_data,
                 )
@@ -112,85 +164,99 @@ impl Plugin for SerialPlugin {
     }
 }
 
-/// serial components initialization
-fn init(mut commands: Commands) {
+/// Initializes the serial components.
+fn init_serial_components(mut commands: Commands) {
     commands.spawn(Serials::new());
 }
 
-/// serach serial port's name
-fn spawn_serach_name(channel: Res<SerialNameChannel>, runtime: Res<Runtime>) {
+/// Spawns the port discovery background task.
+fn spawn_port_discovery(channel: Res<SerialNameChannel>, runtime: Res<Runtime>) {
     let tx = channel.tx_world2_serial.clone();
-    runtime.rt.spawn(async move {
-        print!("{:?}",available_ports());
+    runtime.spawn(async move {
+        info!(
+            "Starting port discovery task. Available ports: {:?}",
+            available_ports()
+        );
         loop {
-            let port_names: Vec<String> = match available_ports() {
-                Ok(ports) => ports.into_iter().filter_map(|p| {
-                    match p.port_type {
-                        SerialPortType::UsbPort(_) => Some(p.port_name),
-                        _ => None,
-                    }
-                }).collect(),
-                Err(e) => {
-                    info!("Error listing ports: {}", e);
-                    Vec::<String>::new()
-                }
-            };
-            match tx.send(PortChannelData::PortName(port_names.clone())) {
-                Ok(_) => {}
-                Err(e) => {
-                    println!("error: {:?}", e);
-                }
+            let port_names = discover_usb_ports();
+            if let Err(e) = tx.send(PortChannelData::PortName(port_names)) {
+                error!("Failed to send port names: {e:?}");
             }
-            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         }
     });
 }
 
-/// update serial port's name
-fn update_serial_port_name(
-    mut channel: ResMut<SerialNameChannel>,
-    mut serials: Query<&mut Serials>,
-) {
-    let mut serials = serials.single_mut();
-
-    match channel.rx_serial2_world.try_recv() {
-        Ok(names) => {
-            let port_names: Vec<String> = names.into();
-
-            serials.serial.retain(|port| {
-                port_names
-                    .iter()
-                    .any(|name| port.lock().unwrap().set.port_name == *name)
-            });
-
-            for name in port_names.iter() {
-                if !serials
-                    .serial
-                    .iter()
-                    .any(|port| port.lock().unwrap().set.port_name == *name)
-                {
-                    let mut serial = Serial::new();
-                    serial.set.port_name = name.to_string();
-                    serials.add(serial);
-                }
-            }
+/// Discovers available USB serial ports.
+fn discover_usb_ports() -> Vec<String> {
+    match available_ports() {
+        Ok(ports) => ports
+            .into_iter()
+            .filter_map(|p| match p.port_type {
+                SerialPortType::UsbPort(_) => Some(p.port_name),
+                _ => None,
+            })
+            .collect(),
+        Err(e) => {
+            info!("Error listing ports: {e}");
+            Vec::new()
         }
-        Err(_) => {}
     }
 }
 
-/// create serial port thread
-fn create_serial_port_thread(mut serials: Query<&mut Serials>, runtime: Res<Runtime>) {
-    let mut serials = serials.single_mut();
-    for serial in serials.serial.iter_mut() {
-        let mut serial = serial.lock().unwrap();
+/// Updates the serial port names based on discovery results.
+fn update_serial_port_names(
+    mut channel: ResMut<SerialNameChannel>,
+    mut serials: Query<&mut Serials>,
+) {
+    let Ok(mut serials) = serials.single_mut() else {
+        return;
+    };
+
+    if let Ok(names) = channel.rx_serial2_world.try_recv() {
+        let port_names: Vec<String> = names.into();
+
+        // Remove ports that are no longer available
+        serials.serial.retain(|port| {
+            port.lock()
+                .map(|p| port_names.contains(&p.set.port_name))
+                .unwrap_or(false)
+        });
+
+        // Add new ports
+        for name in &port_names {
+            let already_exists = serials.serial.iter().any(|port| {
+                port.lock()
+                    .map(|p| p.set.port_name == *name)
+                    .unwrap_or(false)
+            });
+
+            if !already_exists {
+                let mut serial = Serial::new();
+                serial.set.port_name = name.clone();
+                serials.add(serial);
+            }
+        }
+    }
+}
+
+/// Creates threads for serial ports that don't have one.
+fn create_serial_port_threads(mut serials: Query<&mut Serials>, runtime: Res<Runtime>) {
+    let Ok(mut serials) = serials.single_mut() else {
+        return;
+    };
+
+    for serial in &mut serials.serial {
+        let Ok(mut serial) = serial.lock() else {
+            continue;
+        };
         if serial.thread_handle().is_none() {
             setup_serial_thread(&mut serial, &runtime);
         }
     }
 }
 
-/// setup serial thread
+/// Sets up the serial port communication thread.
 fn setup_serial_thread(serial: &mut Serial, runtime: &Runtime) {
     let (tx, mut rx) = broadcast::channel(100);
     let (tx1, rx1) = broadcast::channel(100);
@@ -202,76 +268,65 @@ fn setup_serial_thread(serial: &mut Serial, runtime: &Runtime) {
     let port_settings = serial.set.clone();
     let port_name = port_settings.port_name.clone();
 
-    let handle = runtime.rt.spawn(async move {
-        #[allow(unused_assignments)]
-        let mut port: Option<SerialStream> = None;
-        port = match wait_for_port_open(&mut rx, &tx1, port_settings).await {
-            Ok(p) => Some(p),
+    let handle = runtime.spawn(async move {
+        let port = match wait_for_port_open(&mut rx, &tx1, port_settings).await {
+            Ok(p) => p,
             Err(e) => {
-                return Err(e.into());
+                error!("Failed to open port: {e:?}");
+                return Err(e);
             }
         };
 
-        info!("open serial port: {}", port_name);
+        info!("Opened serial port: {port_name}");
         if let Err(e) = notify_port_ready(&tx1) {
-            return Err(e.into());
+            return Err(SerialBevyError::channel(e.to_string()));
         }
-        let port = port.unwrap();
-        let (read, write) = io::split(port);
+
+        let (read, write) = tokio::io::split(port);
         let read_handle = spawn_read_thread(read, tx1.clone(), rx_shutdown, &port_name);
 
         handle_write_thread(write, rx, tx1, &port_name).await;
 
-        // clean up
         read_handle.abort();
-        info!("serial port thread exit");
-        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+        info!("Serial port thread exited: {port_name}");
+        Ok(())
     });
 
     *serial.thread_handle() = Some(handle);
 }
 
-/// wait for port open
+/// Waits for a port open request and opens the port.
 async fn wait_for_port_open(
     rx: &mut broadcast::Receiver<PortChannelData>,
     tx1: &broadcast::Sender<PortChannelData>,
     port_settings: PortSettings,
-) -> Result<tokio_serial::SerialStream, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<SerialStream, SerialBevyError> {
     loop {
-        if let Ok(data) = rx.recv().await {
-            if let PortChannelData::PortOpen = data {
-                if let Some(port) = open_port(port_settings).await {
-                    return Ok(port);
-                } else {
-                    match tx1.send(PortChannelData::PortError(PorRWData {
+        if matches!(rx.recv().await, Ok(PortChannelData::PortOpen)) {
+            return match open_port(&port_settings).await {
+                Ok(port) => Ok(port),
+                Err(e) => {
+                    let _ = tx1.send(PortChannelData::PortError(PorRWData {
                         data: b"open port failed".to_vec(),
-                    })) {
-                        Ok(_) => {}
-                        Err(e) => error!("发送端口关闭消息失败: {}", e),
-                    }
-                    return Err("Failed to open port".into());
+                    }));
+                    Err(e)
                 }
-            }
+            };
         }
     }
 }
 
-/// notify port ready
+/// Notifies that the port is ready.
 fn notify_port_ready(
     tx1: &broadcast::Sender<PortChannelData>,
 ) -> Result<(), broadcast::error::SendError<PortChannelData>> {
-    match tx1.send(PortChannelData::PortState(port::State::Ready)) {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            error!("Failed to send port ready state: {}", e);
-            Err(e)
-        }
-    }
+    tx1.send(PortChannelData::PortState(PortState::Ready))?;
+    Ok(())
 }
 
-/// spawn read thread
+/// Spawns the read thread for a serial port.
 fn spawn_read_thread(
-    mut read: io::ReadHalf<tokio_serial::SerialStream>,
+    mut read: tokio::io::ReadHalf<SerialStream>,
     tx1_read: broadcast::Sender<PortChannelData>,
     mut rx_shutdown: broadcast::Receiver<PortChannelData>,
     port_name: &str,
@@ -283,23 +338,28 @@ fn spawn_read_thread(
             tokio::select! {
                 result = rx_shutdown.recv() => {
                     if let Ok(PortChannelData::PortClose(name)) = result {
-                        info!("close serial port read thread: {}", name);
+                        info!("Closing serial port read thread: {name}");
                         break;
                     }
                 }
                 result = read.read(&mut buffer) => {
                     match result {
-                        Ok(n) => {
+                        Ok(n) if n > 0 => {
                             let data = PorRWData {
                                 data: buffer[..n].to_vec(),
                             };
-                            match tx1_read.send(PortChannelData::PortRead(data.clone())) {
-                                Ok(_) => {info!("{} read : {:?}", port_name, data.data)},
-                                Err(e) => error!("Failed to send read data: {}", e),
+                            if let Err(e) = tx1_read.send(PortChannelData::PortRead(data.clone())) {
+                                error!("Failed to send read data: {e}");
+                            } else {
+                                info!("{} read: {:?}", port_name, data.data);
                             }
                         }
+                        Ok(_) => {
+                            // Zero bytes read, connection closed
+                            break;
+                        }
                         Err(e) => {
-                            error!("read error: {}", e);
+                            error!("Read error on {port_name}: {e}");
                             break;
                         }
                     }
@@ -309,9 +369,9 @@ fn spawn_read_thread(
     })
 }
 
-/// handle write thread
+/// Handles writing data to the serial port.
 async fn handle_write_thread(
-    mut write: io::WriteHalf<tokio_serial::SerialStream>,
+    mut write: tokio::io::WriteHalf<SerialStream>,
     mut rx: broadcast::Receiver<PortChannelData>,
     tx1: broadcast::Sender<PortChannelData>,
     port_name: &str,
@@ -320,16 +380,15 @@ async fn handle_write_thread(
         if let Ok(data) = rx.recv().await {
             match data {
                 PortChannelData::PortWrite(data) => {
-                    info!("{} write : {:?}", port_name, data.data);
-                    if write.write(&data.data).await.is_err() {
-                        info!("{} write error", port_name);
+                    info!("{} write: {:?}", port_name, data.data);
+                    if write.write_all(&data.data).await.is_err() {
+                        error!("{port_name} write error");
                         break;
                     }
                 }
                 PortChannelData::PortClose(name) => {
-                    info!("close serial port write thread: {}", name);
-                    tx1.send(PortChannelData::PortState(port::State::Close))
-                        .unwrap();
+                    info!("Closing serial port write thread: {name}");
+                    let _ = tx1.send(PortChannelData::PortState(PortState::Close));
                     break;
                 }
                 _ => {}
@@ -338,74 +397,84 @@ async fn handle_write_thread(
     }
 }
 
-/// send serial data
+/// Sends data to serial ports.
 fn send_serial_data(mut serials: Query<&mut Serials>) {
-    let mut serials = serials.single_mut();
-    for serial in serials.serial.iter_mut() {
-        let mut serial = serial.lock().unwrap();
+    let Ok(mut serials) = serials.single_mut() else {
+        return;
+    };
 
-        // convert data to the corresponding format
+    for serial in &mut serials.serial {
+        let Ok(mut serial) = serial.lock() else {
+            continue;
+        };
+
         let data = serial.data().get_send_data();
         if data.is_empty() {
             continue;
         }
+
         let file_data = data.join("\n");
-        // convert data to u8, then convert to `port::Type`
         let mut data_vec_u8: Vec<u8> = vec![];
-        for string in data{
-            let data_u8 = translate_to_u8(string, serial.data().data_type().to_owned());
+        for string in data {
+            let data_u8 = encode_string(&string, *serial.data().data_type());
             data_vec_u8.extend(data_u8);
         }
 
-        serial.data().write_source_file(file_data.as_bytes(), DataSource::Write);
-        if serial.is_open() {
-            if let Some(tx) = serial.tx_channel() {
-                match tx.send(PortChannelData::PortWrite(PorRWData { data: data_vec_u8 })) {
-                    Ok(_) => {}
-                    Err(e) => error!("Failed to send data: {}", e),
-                }
-            }
+        serial
+            .data()
+            .write_source_file(file_data.as_bytes(), DataSource::Write);
+
+        if serial.is_open()
+            && let Some(tx) = serial.tx_channel()
+            && let Err(e) = tx.send(PortChannelData::PortWrite(PorRWData { data: data_vec_u8 }))
+        {
+            error!("Failed to send data: {e}");
         }
     }
 }
 
-/// receive serial data
+/// Receives data from serial ports.
 fn receive_serial_data(mut serials: Query<&mut Serials>) {
-    let mut serials = serials.single_mut();
+    let Ok(mut serials) = serials.single_mut() else {
+        return;
+    };
 
-    for serial in serials.serial.iter_mut() {
-        let mut serial = serial.lock().unwrap();
+    for serial in &mut serials.serial {
+        let Ok(mut serial) = serial.lock() else {
+            continue;
+        };
 
-        let rx = match serial.rx_channel() {
-            Some(rx) => rx,
-            None => continue,
+        let Some(rx) = serial.rx_channel() else {
+            continue;
         };
 
         if let Ok(data) = rx.try_recv() {
             match data {
                 PortChannelData::PortState(state) => match state {
-                    port::State::Ready | port::State::Close => {
-                        if matches!(state, port::State::Ready) {
-                            serial.open()
+                    PortState::Ready | PortState::Close => {
+                        if state == PortState::Ready {
+                            serial.open();
                         } else {
-                            serial.close()
-                        };
+                            serial.close();
+                        }
                         serial.data().clear_send_data();
                     }
-                    _ => {}
+                    PortState::Error => {
+                        serial.error();
+                    }
                 },
                 PortChannelData::PortRead(data) => {
-                    let data = translate_to_string(data.data, serial.data().data_type().to_owned());
+                    let decoded = decode_bytes(&data.data, *serial.data().data_type());
                     serial
                         .data()
-                        .write_source_file(data.as_bytes(), DataSource::Read);
+                        .write_source_file(decoded.as_bytes(), DataSource::Read);
                 }
                 PortChannelData::PortError(data) => {
-                    let data = translate_to_string(data.data, serial.data().data_type().to_owned());
+                    let decoded = decode_bytes(&data.data, *serial.data().data_type());
                     serial.error();
                     serial
                         .data()
-                        .write_source_file(data.as_bytes(), DataSource::Error);
+                        .write_source_file(decoded.as_bytes(), DataSource::Error);
                 }
                 _ => {}
             }
@@ -413,47 +482,27 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
     }
 }
 
-/// translate to u8
-fn translate_to_u8(source_data: String, translate_type: port::Type) -> Vec<u8>{
-    use regex::Regex;
-    match translate_type{
-        port::Type::Hex =>{
-            let re = Regex::new(r"[^0-9a-fA-F]").unwrap();
-            let hex_str = re.replace_all(source_data.as_str(), "");
-            let cleaned_hex = if hex_str.len() % 2 != 0 {
-                format!("0{}", hex_str)
-            } else {
-                hex_str.to_string()
-            };
-            let bytes_result: Result<Vec<u8>, _> = (0..cleaned_hex.len())
-                .step_by(2)
-                .map(|i| u8::from_str_radix(&cleaned_hex[i..i + 2], 16))
-                .collect();
-            match bytes_result {
-                Ok(bytes) => bytes,
-                Err(err) => {error!("{}",err); vec![]},
-            }
-        }
-        port::Type::Utf8 => {
-            source_data.into_bytes()
-        }
-        _ =>{
-            //TODO(anlada): more types need be suported
-            vec![]
-        }
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// translate to string
-fn translate_to_string(source_data: Vec<u8>, translate_type: port::Type) -> String{
-    use hex::encode;
-    match translate_type{
-        port::Type::Hex =>{
-            encode(source_data)
-        }
-        port::Type::Utf8 =>{
-            String::from_utf8_lossy(&source_data).replace('�', "❓")
-        }
-        _=> {String::new()}
+    #[test]
+    fn test_serials_new() {
+        let serials = Serials::new();
+        assert!(serials.is_empty());
+    }
+
+    #[test]
+    fn test_serials_add() {
+        let mut serials = Serials::new();
+        serials.add(Serial::new());
+        assert_eq!(serials.len(), 1);
+    }
+
+    #[test]
+    fn test_runtime_creation() {
+        let runtime = Runtime::init();
+        // Just verify it doesn't panic
+        drop(runtime);
     }
 }

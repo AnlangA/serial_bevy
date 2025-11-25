@@ -1,22 +1,133 @@
-name: Rust
+name: Serial Bevy CI/CD
 
 on:
   push:
-    branches: [ "master" ]
+    branches: ["master", "main"]
+    tags:
+      - 'v*'
   pull_request:
-    branches: [ "master" ]
+    branches: ["master", "main"]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  # Build and test on Linux
+  build-linux:
+    name: Build and Test (Linux)
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - uses: actions/checkout@v4
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev pkg-config libwayland-dev libxkbcommon-dev
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          components: rustfmt, clippy
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      
+      - name: Check formatting
+        run: cargo fmt --check
+      
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
+      
+      - name: Build
+        run: cargo build --release
+      
+      - name: Run tests
+        run: cargo test --release
+      
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: serial_bevy-linux-x86_64
+          path: target/release/serial_bevy
+          if-no-files-found: error
+
+  # Build on Windows
+  build-windows:
+    name: Build (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      
+      - name: Build
+        run: cargo build --release
+      
+      - name: Run tests
+        run: cargo test --release
+      
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: serial_bevy-windows-x86_64
+          path: target/release/serial_bevy.exe
+          if-no-files-found: error
+
+  # Create release when a tag is pushed
+  release:
+    name: Create Release
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: serial_bevy-linux-x86_64
+          path: artifacts/linux
+      
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: serial_bevy-windows-x86_64
+          path: artifacts/windows
+      
+      - name: Prepare release assets
+        run: |
+          chmod +x artifacts/linux/serial_bevy
+          cd artifacts/linux && zip -r ../../serial_bevy-linux-x86_64.zip serial_bevy && cd ../..
+          cd artifacts/windows && zip -r ../../serial_bevy-windows-x86_64.zip serial_bevy.exe && cd ../..
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            serial_bevy-linux-x86_64.zip
+            serial_bevy-windows-x86_64.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false

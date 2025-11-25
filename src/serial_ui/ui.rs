@@ -1,93 +1,91 @@
-use crate::serial::port::Serial;
-use crate::serial::*;
+//! # UI Components Module
+//!
+//! This module provides individual UI components for serial port configuration and control.
+
+use crate::serial::Serials;
+use crate::serial::port::{COMMON_BAUD_RATES, DataType, PortChannelData, Serial};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
+use log::{error, info};
 use std::sync::MutexGuard;
 use tokio_serial::{DataBits, FlowControl, Parity, StopBits};
 
-#[derive(Resource)]
+/// Resource for tracking the currently selected serial port.
+#[derive(Resource, Default)]
 pub struct Selected {
+    /// The name of the selected port.
     selected: String,
 }
-impl Default for Selected {
-    fn default() -> Self {
-        Self {
-            selected: "".to_string(),
-        }
-    }
-}
+
 impl Selected {
+    /// Returns true if the given port name is selected.
+    #[must_use]
     pub fn is_selected(&self, port_name: &str) -> bool {
         self.selected == port_name
     }
+
+    /// Selects the given port.
     pub fn select(&mut self, port_name: &str) {
         self.selected = port_name.to_string();
     }
+
+    /// Returns the selected port name.
+    #[must_use]
     pub fn selected(&self) -> &str {
         &self.selected
     }
 }
 
-/// draw serial selector
-pub fn draw_select_serial_ui(
-    ui: &mut egui::Ui,
-    serials: &mut Serials,
-    mut selected: &mut Selected,
-) {
-    for serial in serials.serial.iter_mut() {
-        let mut serial = serial.lock().unwrap();
+/// Draws the serial port selection list.
+pub fn draw_select_serial_ui(ui: &mut egui::Ui, serials: &mut Serials, selected: &mut Selected) {
+    for serial in &mut serials.serial {
+        let Ok(mut serial) = serial.lock() else {
+            continue;
+        };
         ui.horizontal(|ui| {
-            if serial.is_open() {
-                if ui
-                    .selectable_label(
-                        selected.is_selected(&serial.set.port_name),
-                        egui::RichText::new(serial.set.port_name.clone())
-                            .color(egui::Color32::ORANGE)
-                            .strong(),
-                    )
-                    .clicked()
-                {
-                    selected.select(&serial.set.port_name);
-                }
+            let color = if serial.is_open() {
+                egui::Color32::ORANGE
             } else {
-                if ui
-                    .selectable_label(
-                        selected.is_selected(&serial.set.port_name),
-                        egui::RichText::new(serial.set.port_name.clone())
-                            .color(egui::Color32::GREEN)
-                            .strong(),
-                    )
-                    .clicked()
-                {
-                    selected.select(&serial.set.port_name);
-                }
+                egui::Color32::GREEN
+            };
+
+            if ui
+                .selectable_label(
+                    selected.is_selected(&serial.set.port_name),
+                    egui::RichText::new(&serial.set.port_name)
+                        .color(color)
+                        .strong(),
+                )
+                .clicked()
+            {
+                selected.select(&serial.set.port_name);
             }
-            open_ui(ui, &mut serial, &mut selected);
+            open_ui(ui, &mut serial, selected);
         });
     }
 }
 
-/// draw baud rate selector
+/// Draws the baud rate selector.
 pub fn draw_baud_rate_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     ui.horizontal(|ui| {
-        ui.label("波特率");
-        egui::ComboBox::from_id_salt(serial.set.port_name.clone() + "0")
+        ui.label("Baud Rate");
+        egui::ComboBox::from_id_salt(format!("{}_baud", serial.set.port_name))
             .width(60f32)
             .selected_text(serial.set.baud_rate().to_string())
             .show_ui(ui, |ui| {
-                for baud_rate in port::COMMON_BAUD_RATES.iter() {
+                for baud_rate in COMMON_BAUD_RATES {
                     ui.selectable_value(serial.set.baud_rate(), *baud_rate, baud_rate.to_string())
-                        .on_hover_text("选择正确的波特率");
+                        .on_hover_text("Select baud rate");
                 }
             });
     });
 }
 
-/// draw data bits selector
+/// Draws the data bits selector.
 pub fn draw_data_bits_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     ui.horizontal(|ui| {
-        ui.label("数据位");
-        egui::ComboBox::from_id_salt(serial.set.port_name.clone() + "1")
+        ui.label("Data Bits");
+        egui::ComboBox::from_id_salt(format!("{}_data", serial.set.port_name))
             .width(60f32)
             .selected_text(serial.set.data_size().to_string())
             .show_ui(ui, |ui| {
@@ -97,32 +95,32 @@ pub fn draw_data_bits_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Se
                     DataBits::Seven,
                     DataBits::Eight,
                 ] {
-                    ui.selectable_value(serial.set.data_size(), bits, format!("{}", bits));
+                    ui.selectable_value(serial.set.data_size(), bits, format!("{bits}"));
                 }
             });
     });
 }
 
-/// draw stop bits selector
+/// Draws the stop bits selector.
 pub fn draw_stop_bits_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     ui.horizontal(|ui| {
-        ui.label("停止位");
-        egui::ComboBox::from_id_salt(serial.set.port_name.clone() + "2")
+        ui.label("Stop Bits");
+        egui::ComboBox::from_id_salt(format!("{}_stop", serial.set.port_name))
             .width(60f32)
             .selected_text(serial.set.stop_bits().to_string())
             .show_ui(ui, |ui| {
                 for bits in [StopBits::One, StopBits::Two] {
-                    ui.selectable_value(serial.set.stop_bits(), bits, format!("{}", bits));
+                    ui.selectable_value(serial.set.stop_bits(), bits, format!("{bits}"));
                 }
             });
     });
 }
 
-/// draw flow control selector
+/// Draws the flow control selector.
 pub fn draw_flow_control_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     ui.horizontal(|ui| {
-        ui.label("流控    ");
-        egui::ComboBox::from_id_salt(serial.set.port_name.clone() + "3")
+        ui.label("Flow Ctrl");
+        egui::ComboBox::from_id_salt(format!("{}_flow", serial.set.port_name))
             .width(60f32)
             .selected_text(serial.set.flow_control().to_string())
             .show_ui(ui, |ui| {
@@ -131,176 +129,181 @@ pub fn draw_flow_control_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_,
                     FlowControl::Software,
                     FlowControl::Hardware,
                 ] {
-                    ui.selectable_value(serial.set.flow_control(), flow, format!("{}", flow));
+                    ui.selectable_value(serial.set.flow_control(), flow, format!("{flow}"));
                 }
             });
     });
 }
 
-/// draw parity selector
+/// Draws the parity selector.
 pub fn draw_parity_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     ui.horizontal(|ui| {
-        ui.label("校验    ");
-        egui::ComboBox::from_id_salt(serial.set.port_name.clone() + "4")
+        ui.label("Parity   ");
+        egui::ComboBox::from_id_salt(format!("{}_parity", serial.set.port_name))
             .width(60f32)
             .selected_text(serial.set.parity().to_string())
             .show_ui(ui, |ui| {
                 for parity in [Parity::None, Parity::Odd, Parity::Even] {
-                    ui.selectable_value(serial.set.parity(), parity, format!("{}", parity));
+                    ui.selectable_value(serial.set.parity(), parity, format!("{parity}"));
                 }
             });
     });
 }
 
-/// draw open port button ui
+/// Draws the open/close port button.
 pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, selected: &mut Selected) {
     if serial.is_close() {
-        if ui.button("打开").clicked() {
+        if ui.button("Open").clicked() {
             selected.select(&serial.set.port_name);
-            info!("Open port {}", serial.set.port_name);
+            info!("Opening port {}", serial.set.port_name);
             if let Some(tx) = serial.tx_channel() {
-                match tx.send(port::PortChannelData::PortOpen) {
+                match tx.send(PortChannelData::PortOpen) {
                     Ok(_) => {
-                        info!("Send open port message");
+                        info!("Sent open port message");
                     }
-                    Err(e) => error!("Failed to open port: {}", e),
+                    Err(e) => error!("Failed to open port: {e}"),
                 }
                 let time = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
-                let port_name = serial.set.port_name.clone();
-                let file_name = format!("{}_{}.txt", port_name, time);
+                let port_name = &serial.set.port_name;
+                let file_name = format!("{port_name}_{time}.txt");
                 serial.data().add_source_file(file_name);
             }
         }
-    } else if serial.is_open() {
-        if ui.button("关闭").clicked() {
-            selected.select(&serial.set.port_name);
-            info!("关闭串口 {}", serial.set.port_name);
-            let port_name = serial.set.port_name.clone();
+    } else if serial.is_open() && ui.button("Close").clicked() {
+        selected.select(&serial.set.port_name);
+        info!("Closing port {}", serial.set.port_name);
+        let port_name = serial.set.port_name.clone();
 
-            if let Some(tx) = serial.tx_channel() {
-                match tx.send(port::PortChannelData::PortClose(port_name)) {
-                    Ok(_) => {
-                        info!("Send close port message");
-                    }
-                    Err(e) => error!("Failed to close port: {}", e),
+        if let Some(tx) = serial.tx_channel() {
+            match tx.send(PortChannelData::PortClose(port_name)) {
+                Ok(_) => {
+                    info!("Sent close port message");
                 }
+                Err(e) => error!("Failed to close port: {e}"),
             }
         }
     }
 }
 
-/// draw serial setting ui
+/// Draws the serial setting status UI.
 pub fn draw_serial_setting_ui(ui: &mut egui::Ui, selected: &mut Selected) {
     ui.horizontal(|ui| {
-        if selected.selected() != "" {
-            ui.label("当前选中:");
-            ui.label(selected.selected());
+        if selected.selected().is_empty() {
+            ui.label("No port selected");
         } else {
-            ui.label("当前未选中串口");
+            ui.label("Selected:");
+            ui.label(selected.selected());
         }
     });
     ui.separator();
 }
 
-/// draw serial context label ui
+/// Draws the serial context label in the tab bar.
 pub fn draw_serial_context_label_ui(
     ui: &mut egui::Ui,
-    selacted: &mut Selected,
+    selected: &mut Selected,
     serial: &mut MutexGuard<'_, Serial>,
 ) {
-    if serial.is_open() {
-        if ui
+    if serial.is_open()
+        && ui
             .selectable_label(
-                selacted.is_selected(&serial.set.port_name),
-                egui::RichText::new(format!("{}", serial.set.port_name)),
+                selected.is_selected(&serial.set.port_name),
+                egui::RichText::new(&serial.set.port_name),
             )
             .clicked()
-        {
-            selacted.select(&serial.set.port_name);
-        }
+    {
+        selected.select(&serial.set.port_name);
     }
 }
 
-/// draw serial context ui
+/// Draws error windows for ports in error state.
 pub fn draw_serial_context_ui(mut serials: Query<&mut Serials>, mut context: EguiContexts) {
-    let mut serials = serials.single_mut();
-    for serial in serials.serial.iter_mut() {
-        let mut serial = serial.lock().unwrap();
+    let Ok(mut serials) = serials.single_mut() else {
+        return;
+    };
+
+    let Ok(ctx) = context.ctx_mut() else {
+        return;
+    };
+
+    for serial in &mut serials.serial {
+        let Ok(mut serial) = serial.lock() else {
+            continue;
+        };
         if serial.is_error() {
-            egui::Window::new(format!("{}", serial.set.port_name) + "错误").show(
-                context.ctx_mut(),
-                |ui| {
-                    ui.label(
-                        egui::RichText::new(format!("{} 错误", serial.set.port_name))
-                            .color(egui::Color32::RED)
-                            .strong(),
-                    );
-                    if ui.button("清除错误").clicked() {
-                        serial.close();
-                    }
-                },
-            );
+            egui::Window::new(format!("{} Error", serial.set.port_name)).show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new(format!("{} Error", serial.set.port_name))
+                        .color(egui::Color32::RED)
+                        .strong(),
+                );
+                if ui.button("Clear Error").clicked() {
+                    serial.close();
+                }
+            });
         }
     }
 }
 
-/// data type ui
-/// TODO(anlada):need surpot more types
+/// Draws the data type selector.
 pub fn data_type_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
-    ui.add(egui::Label::new(egui::RichText::new("数据类型:")));
-    egui::ComboBox::from_id_salt(serial.set.port_name.clone() + "3")
+    ui.add(egui::Label::new(egui::RichText::new("Data Type:")));
+    egui::ComboBox::from_id_salt(format!("{}_datatype", serial.set.port_name))
         .width(60f32)
         .selected_text(serial.data().data_type().as_str_en())
         .show_ui(ui, |ui| {
-            for data_type in [
-                //port::Type::Binary,
-                port::Type::Hex,
-                port::Type::Utf8,
-                //port::Type::Utf16,
-                //port::Type::Utf32,
-                //port::Type::GBK,
-                //port::Type::ASCII,
-            ] {
+            for data_type in [DataType::Hex, DataType::Utf8] {
                 ui.selectable_value(serial.data().data_type(), data_type, data_type.as_str_en());
             }
         });
 }
 
-/// data line feed
+/// Draws the line feed toggle button.
 pub fn data_line_feed_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     ui.horizontal(|ui| {
-        if *serial.data().line_feed() {
-            if ui
-                .button("不换行")
-                .on_hover_text("发送的数据中不包含换行符")
-                .clicked()
-            {
-                *serial.data().line_feed() = false;
-            }
+        let (button_text, hover_text) = if *serial.data().line_feed() {
+            ("No LF", "Disable line feed in sent data")
         } else {
-            if ui
-                .button("换行")
-                .on_hover_text("发送的数据中包含换行符")
-                .clicked()
-            {
-                *serial.data().line_feed() = true;
-            }
+            ("With LF", "Include line feed in sent data")
+        };
+
+        if ui.button(button_text).on_hover_text(hover_text).clicked() {
+            *serial.data().line_feed() = !*serial.data().line_feed();
         }
     });
 }
 
+/// Draws the LLM toggle button.
 pub fn llm_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     ui.horizontal(|ui| {
-        let llm_enable = serial.llm().enable().clone();
-        if llm_enable{
-            if ui.button("关闭LLM").clicked(){
-                *serial.llm().enable() = false;
-            }
-        }else{
-            if ui.button("开启LLM").clicked(){
-                *serial.llm().enable() = true;
-            }
+        let llm_enable = *serial.llm().enable();
+        let button_text = if llm_enable {
+            "Disable LLM"
+        } else {
+            "Enable LLM"
+        };
+        if ui.button(button_text).clicked() {
+            *serial.llm().enable() = !llm_enable;
         }
-        
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_selected_default() {
+        let selected = Selected::default();
+        assert!(selected.selected().is_empty());
+    }
+
+    #[test]
+    fn test_selected_operations() {
+        let mut selected = Selected::default();
+        selected.select("COM1");
+        assert!(selected.is_selected("COM1"));
+        assert!(!selected.is_selected("COM2"));
+        assert_eq!(selected.selected(), "COM1");
+    }
 }

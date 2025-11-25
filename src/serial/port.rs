@@ -1,4 +1,7 @@
-use chat::data::Message;
+//! # Port Module
+//!
+//! This module provides serial port types, settings, and state management.
+
 use log::{error, info};
 use std::fmt;
 use std::fs::OpenOptions;
@@ -7,128 +10,150 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio_serial::SerialPortBuilderExt;
-use zhipuai_rs::prelude::*;
+
 pub use tokio_serial::{DataBits, FlowControl, Parity, SerialPort, SerialStream, StopBits};
 
-/// serial port baud rate
+use crate::error::SerialBevyError;
+
+/// Common baud rates for serial communication.
 pub const COMMON_BAUD_RATES: &[u32] = &[
     4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000, 921600, 1000000,
     1500000, 2000000,
 ];
 
-/// serial port
+/// Represents a serial port with its settings, data, and communication channels.
 pub struct Serial {
+    /// Port settings.
     pub set: PortSettings,
+    /// Port data manager.
     data: PortData,
+    /// Optional serial stream.
     stream: Option<SerialStream>,
-    thread_handle: Option<JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>>,
+    /// Handle to the communication thread.
+    thread_handle: Option<JoinHandle<Result<(), SerialBevyError>>>,
+    /// Transmit channel for sending commands to the port thread.
     tx_channel: Option<broadcast::Sender<PortChannelData>>,
+    /// Receive channel for receiving data from the port thread.
     rx_channel: Option<broadcast::Receiver<PortChannelData>>,
-    llm: Llm,
+    /// LLM configuration.
+    llm: LlmConfig,
 }
 
-/// serial port implementation
+impl Default for Serial {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Serial {
-    /// serial port initialization
+    /// Creates a new Serial instance with default settings.
+    #[must_use]
     pub fn new() -> Self {
-        Serial {
-            set: PortSettings::new(),
+        Self {
+            set: PortSettings::default(),
             data: PortData::new(),
             stream: None,
             thread_handle: None,
             tx_channel: None,
             rx_channel: None,
-            llm: Llm::new(),
+            llm: LlmConfig::new(),
         }
     }
 
-    /// get port settings
-    pub fn set(&self) -> &PortSettings {
+    /// Gets a reference to the port settings.
+    #[must_use]
+    pub const fn set(&self) -> &PortSettings {
         &self.set
     }
 
-    /// get port data
-    pub fn data(&mut self) -> &mut PortData {
+    /// Gets a mutable reference to the port data.
+    pub const fn data(&mut self) -> &mut PortData {
         &mut self.data
     }
 
-    /// get stream
-    pub fn stream(&mut self) -> &mut Option<SerialStream> {
+    /// Gets a mutable reference to the stream option.
+    pub const fn stream(&mut self) -> &mut Option<SerialStream> {
         &mut self.stream
     }
 
-    /// get thread handle
-    pub fn thread_handle(
-        &mut self,
-    ) -> &mut Option<JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>> {
+    /// Gets a mutable reference to the thread handle.
+    pub const fn thread_handle(&mut self) -> &mut Option<JoinHandle<Result<(), SerialBevyError>>> {
         &mut self.thread_handle
     }
 
-    /// get tx channel
-    pub fn tx_channel(&mut self) -> &mut Option<broadcast::Sender<PortChannelData>> {
+    /// Gets a mutable reference to the transmit channel.
+    pub const fn tx_channel(&mut self) -> &mut Option<broadcast::Sender<PortChannelData>> {
         &mut self.tx_channel
     }
 
-    /// get rx channel
-    pub fn rx_channel(&mut self) -> &mut Option<broadcast::Receiver<PortChannelData>> {
+    /// Gets a mutable reference to the receive channel.
+    pub const fn rx_channel(&mut self) -> &mut Option<broadcast::Receiver<PortChannelData>> {
         &mut self.rx_channel
     }
 
-    /// open serial port
+    /// Opens the serial port (sets state to Ready).
     pub fn open(&mut self) {
         self.data.state().open();
     }
 
-    /// is serial port open
+    /// Returns true if the port is open.
+    #[must_use]
     pub fn is_open(&mut self) -> bool {
         self.data.state().is_open()
     }
 
-    /// close serial port
+    /// Closes the serial port.
     pub fn close(&mut self) {
         self.data.state().close();
         self.thread_handle = None;
     }
 
-    /// is serial port close
+    /// Returns true if the port is closed.
+    #[must_use]
     pub fn is_close(&mut self) -> bool {
         self.data.state().is_close()
     }
 
-    /// get error
+    /// Sets the port to error state.
     pub fn error(&mut self) {
         self.data.state().error();
     }
 
-    /// is error
+    /// Returns true if the port is in error state.
+    #[must_use]
     pub fn is_error(&mut self) -> bool {
         self.data.state().is_error()
     }
 
-    /// get llm
-    pub fn llm(&mut self) -> &mut Llm {
+    /// Gets a mutable reference to the LLM configuration.
+    pub const fn llm(&mut self) -> &mut LlmConfig {
         &mut self.llm
     }
 }
 
-/// serial port settings
+/// Serial port configuration settings.
 #[derive(Clone, Debug)]
 pub struct PortSettings {
+    /// Port name (e.g., "COM1" or "/dev/ttyUSB0").
     pub port_name: String,
+    /// Baud rate in bits per second.
     pub baud_rate: u32,
+    /// Number of data bits.
     pub data_bits: DataBits,
+    /// Number of stop bits.
     pub stop_bits: StopBits,
+    /// Parity checking mode.
     pub parity: Parity,
+    /// Flow control mode.
     pub flow_control: FlowControl,
+    /// Timeout duration.
     pub timeout: Duration,
 }
 
-/// serial port settings implementation
-impl PortSettings {
-    /// serial port settings initialization
-    pub fn new() -> Self {
-        PortSettings {
-            port_name: String::from("请选择一个串口"),
+impl Default for PortSettings {
+    fn default() -> Self {
+        Self {
+            port_name: String::from("Select a port"),
             baud_rate: 115200,
             data_bits: DataBits::Eight,
             stop_bits: StopBits::One,
@@ -137,635 +162,815 @@ impl PortSettings {
             timeout: Duration::from_micros(500),
         }
     }
+}
 
-    /// serial port settings copy
-    pub fn config(&mut self, port_settings: &PortSettings) {
-        self.port_name = port_settings.port_name.clone();
-        self.baud_rate = port_settings.baud_rate;
-        self.data_bits = port_settings.data_bits;
-        self.stop_bits = port_settings.stop_bits;
-        self.parity = port_settings.parity;
-        self.flow_control = port_settings.flow_control;
-        self.timeout = port_settings.timeout;
+impl PortSettings {
+    /// Creates new port settings with defaults.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    /// get mutable serial port name
-    pub fn port_name(&mut self) -> &mut String {
+    /// Copies settings from another `PortSettings` instance.
+    pub fn config(&mut self, other: &Self) {
+        self.port_name.clone_from(&other.port_name);
+        self.baud_rate = other.baud_rate;
+        self.data_bits = other.data_bits;
+        self.stop_bits = other.stop_bits;
+        self.parity = other.parity;
+        self.flow_control = other.flow_control;
+        self.timeout = other.timeout;
+    }
+
+    /// Gets a mutable reference to the port name.
+    pub const fn port_name(&mut self) -> &mut String {
         &mut self.port_name
     }
-    /// get mutable serial port baud rate
-    pub fn baud_rate(&mut self) -> &mut u32 {
+
+    /// Gets a mutable reference to the baud rate.
+    pub const fn baud_rate(&mut self) -> &mut u32 {
         &mut self.baud_rate
     }
-    /// get mutable serial port data bits
-    pub fn data_size(&mut self) -> &mut DataBits {
+
+    /// Gets a mutable reference to the data bits.
+    pub const fn data_size(&mut self) -> &mut DataBits {
         &mut self.data_bits
     }
-    /// get mutable serial port stop bits
-    pub fn stop_bits(&mut self) -> &mut StopBits {
+
+    /// Gets a mutable reference to the stop bits.
+    pub const fn stop_bits(&mut self) -> &mut StopBits {
         &mut self.stop_bits
     }
-    /// get mutable serial port parity
-    pub fn parity(&mut self) -> &mut Parity {
+
+    /// Gets a mutable reference to the parity setting.
+    pub const fn parity(&mut self) -> &mut Parity {
         &mut self.parity
     }
-    /// get mutable serial port flow control
-    pub fn flow_control(&mut self) -> &mut FlowControl {
+
+    /// Gets a mutable reference to the flow control setting.
+    pub const fn flow_control(&mut self) -> &mut FlowControl {
         &mut self.flow_control
     }
-    /// get mutable serial port timeout
-    pub fn timeout(&mut self) -> &mut Duration {
+
+    /// Gets a mutable reference to the timeout.
+    pub const fn timeout(&mut self) -> &mut Duration {
         &mut self.timeout
     }
-    /// get serial port data bits name
+
+    /// Gets the data bits as a display string.
+    #[must_use]
     pub fn databits_name(&self) -> String {
         format!("{}", self.data_bits)
     }
-    /// get serial port stop bits name
+
+    /// Gets the stop bits as a display string.
+    #[must_use]
     pub fn stop_bits_name(&self) -> String {
         format!("{}", self.stop_bits)
     }
-    /// get serial port parity name
+
+    /// Gets the parity as a display string.
+    #[must_use]
     pub fn parity_name(&self) -> String {
         format!("{}", self.parity)
     }
-    /// get serial port flow control name
+
+    /// Gets the flow control as a display string.
+    #[must_use]
     pub fn flow_control_name(&self) -> String {
         format!("{}", self.flow_control)
     }
 }
 
-/// open serial port
-pub async fn open_port(port_data: PortSettings) -> Option<SerialStream> {
-    let mut port_settings = PortSettings::new();
-    port_settings.config(&port_data);
-    match tokio_serial::new(port_settings.port_name, port_settings.baud_rate)
-        .data_bits(port_data.data_bits)
-        .parity(port_data.parity)
-        .stop_bits(port_data.stop_bits)
-        .flow_control(port_data.flow_control)
-        .timeout(port_data.timeout)
+/// Opens a serial port with the specified settings.
+///
+/// # Arguments
+///
+/// * `settings` - The port configuration settings
+///
+/// # Returns
+///
+/// A Result containing the opened `SerialStream` or an error.
+pub async fn open_port(settings: &PortSettings) -> Result<SerialStream, SerialBevyError> {
+    tokio_serial::new(&settings.port_name, settings.baud_rate)
+        .data_bits(settings.data_bits)
+        .parity(settings.parity)
+        .stop_bits(settings.stop_bits)
+        .flow_control(settings.flow_control)
+        .timeout(settings.timeout)
         .open_native_async()
-    {
-        Ok(stream) => {
-            info!("成功打开串口: {}", port_data.port_name);
-            Some(stream)
-        }
-        Err(e) => {
-            error!("无法打开串口 {}: {}", port_data.port_name, e);
-            None
-        }
+        .inspect(|_stream| {
+            info!("Successfully opened serial port: {}", settings.port_name);
+        })
+        .map_err(|e| {
+            error!("Failed to open serial port {}: {}", settings.port_name, e);
+            SerialBevyError::port_open(&settings.port_name, e.to_string())
+        })
+}
+
+/// Cache for command history and current input.
+pub struct CacheData {
+    /// History of sent commands.
+    history_data: Vec<String>,
+    /// Current index in history.
+    history_index: usize,
+    /// Current input data.
+    current_data: String,
+}
+
+impl Default for CacheData {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-/// cache data
-pub struct CacheData {
-    pub history_data: Vec<String>,
-    pub history_index: usize,
-    pub current_data: String,
-}
-
-/// cache data implementation
 impl CacheData {
-    /// cache data initialization
-    pub fn new() -> Self {
-        CacheData {
-            history_data: vec![],
+    /// Creates a new `CacheData` instance.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            history_data: Vec::new(),
             history_index: 0,
             current_data: String::new(),
         }
     }
 
-    /// add history data
+    /// Adds data to history if it's different from the last entry.
     pub fn add_history_data(&mut self, data: String) {
-        match self.history_data.last(){
-            Some(history_data) =>{
-                if history_data.to_owned() == data {
-                    return;
-                }
-            }
-            None => {}
+        if self.history_data.last().is_none_or(|last| *last != data) {
+            self.history_data.push(data);
+            self.history_index = self.history_data.len();
         }
-        self.history_data.push(data);
-        self.history_index = self.history_data.len();
     }
 
-    /// add one to ['history_index']
-    pub fn add_history_index(&mut self) -> usize {
+    /// Moves to the next history entry.
+    pub const fn add_history_index(&mut self) -> usize {
         if self.history_index < self.history_data.len() {
-            self.history_index = self.history_index + 1;
+            self.history_index += 1;
         }
         self.history_index
     }
 
-    /// subtract one to ['history_index']
-    pub fn sub_history_index(&mut self) -> usize {
-        if self.history_index > 1usize {
-            self.history_index = self.history_index - 1;
+    /// Moves to the previous history entry.
+    pub const fn sub_history_index(&mut self) -> usize {
+        if self.history_index > 1 {
+            self.history_index -= 1;
         }
         self.history_index
     }
 
-    /// get history data index
-    pub fn get_current_data_index(&self) -> usize {
+    /// Gets the current history index.
+    #[must_use]
+    pub const fn get_current_data_index(&self) -> usize {
         self.history_index
     }
 
-    /// get history data
+    /// Gets history data at the specified index.
     pub fn get_history_data(&mut self, index: usize) -> String {
-        if self.history_data.len() == 0usize {
-            let no_history = String::new();
-            no_history
-        } else {
-            if index >= self.history_data.len() {
-                self.history_index = self.history_data.len();
-            } else {
-                self.history_index = index;
-            }
+        if self.history_data.is_empty() {
+            return String::new();
+        }
+
+        self.history_index = index.min(self.history_data.len());
+        if self.history_index > 0 {
             self.history_data[self.history_index - 1].clone()
+        } else {
+            String::new()
         }
     }
 
-    /// get current data
-    pub fn get_current_data(&mut self) -> &mut String {
+    /// Gets a mutable reference to the current input data.
+    pub const fn get_current_data(&mut self) -> &mut String {
         &mut self.current_data
     }
 
-    /// clear current data
+    /// Clears the current input data.
     pub fn clear_current_data(&mut self) {
         self.current_data.clear();
     }
 }
 
-/// serial port data
+/// Port data management for files and communication.
 pub struct PortData {
-    /// source file
+    /// Source file paths for logging.
     source_file: FileData,
-    /// parse file
+    /// Parse file paths.
     parse_file: FileData,
-    /// send data
+    /// Data pending to be sent.
     send_data: Vec<String>,
-    /// cache data
+    /// Command cache and history.
     cache_data: CacheData,
-    /// serial port state
-    state: State,
-    /// serial port data type
-    data_type: Type,
-    /// line feed
+    /// Current port state.
+    state: PortState,
+    /// Data encoding type.
+    data_type: DataType,
+    /// Whether to include line feeds in sent data.
     line_feed: bool,
 }
 
+impl Default for PortData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PortData {
+    /// Creates a new `PortData` instance.
+    #[must_use]
     pub fn new() -> Self {
-        PortData {
-            source_file: FileData { file: vec![] },
-            parse_file: FileData { file: vec![] },
-            send_data: vec![],
+        Self {
+            source_file: FileData { file: Vec::new() },
+            parse_file: FileData { file: Vec::new() },
+            send_data: Vec::new(),
             cache_data: CacheData::new(),
-            state: State::Close,
-            data_type: Type::Utf8,
+            state: PortState::Close,
+            data_type: DataType::Utf8,
             line_feed: false,
         }
     }
 
-    /// add receive file and add it's index
+    /// Adds a source file and returns the new file count.
     pub fn add_source_file(&mut self, name: String) -> usize {
-        let _ = OpenOptions::new()
+        if let Err(e) = OpenOptions::new()
             .create(true)
-            .write(true)
             .read(true)
             .append(true)
-            .open(name.clone())
-            .unwrap();
+            .open(&name)
+        {
+            error!("Failed to create source file {name}: {e}");
+        }
         self.source_file.file.push(name);
         self.source_file.file.len()
     }
 
-    /// get receive file index
-    pub fn source_file_index(&self) -> usize {
+    /// Gets the number of source files.
+    #[must_use]
+    pub const fn source_file_index(&self) -> usize {
         self.source_file.file.len()
     }
 
-    /// write data to last source file
+    /// Writes data to the last source file with timestamp.
     pub fn write_source_file(&mut self, data: &[u8], source: DataSource) {
+        let Some(file_path) = self.source_file.file.last() else {
+            return;
+        };
+
         let time = chrono::Local::now()
             .format("%Y-%m-%d %H:%M:%S.%3f")
             .to_string();
-        let source = source.to_string();
-        let head = format!("[{}-{}]", time, source);
-        let file = self.source_file.file.last().unwrap();
-        let file = OpenOptions::new()
-            .write(true)
-            .append(true)
-            .open(file)
-            .unwrap();
-        let mut write = BufWriter::new(&file);
-        let mut combined = Vec::new();
-        combined.extend_from_slice(head.as_bytes());
-        combined.extend_from_slice(data);
-        write.write_all(b"\n").unwrap();
-        write.write_all(&combined).unwrap();
-        write.flush().unwrap();
+        let head = format!("[{time}-{source}]");
+
+        if let Ok(file) = OpenOptions::new().append(true).open(file_path) {
+            let mut writer = BufWriter::new(file);
+            let mut combined = Vec::new();
+            combined.extend_from_slice(head.as_bytes());
+            combined.extend_from_slice(data);
+            let _ = writer.write_all(b"\n");
+            let _ = writer.write_all(&combined);
+            let _ = writer.flush();
+        }
     }
 
-    /// read current source file
+    /// Reads the current source file contents.
+    #[must_use]
     pub fn read_current_source_file(&mut self) -> String {
-        match self.source_file.file.last() {
-            Some(file) => {
-                let file = OpenOptions::new().read(true).open(file).unwrap();
-                let mut data = String::new();
-                let mut reader = BufReader::new(&file);
-                reader.read_to_string(&mut data).unwrap();
-                data
-            }
-            None => String::new(),
-        }
+        self.source_file
+            .file
+            .last()
+            .and_then(|path| {
+                OpenOptions::new().read(true).open(path).ok().map(|file| {
+                    let mut data = String::new();
+                    let mut reader = BufReader::new(file);
+                    let _ = reader.read_to_string(&mut data);
+                    data
+                })
+            })
+            .unwrap_or_default()
     }
 
-    /// read source file
+    /// Reads a specific source file by index.
+    #[must_use]
     pub fn read_source_file(&self, index: usize) -> String {
-        match self.source_file.file.get(index) {
-            Some(file) => {
-                let mut file = OpenOptions::new().read(true).open(file).unwrap();
-                let mut data = String::new();
-                file.read_to_string(&mut data).unwrap();
-                data
-            }
-            None => String::new(),
-        }
+        self.source_file
+            .file
+            .get(index)
+            .and_then(|path| {
+                OpenOptions::new()
+                    .read(true)
+                    .open(path)
+                    .ok()
+                    .map(|mut file| {
+                        let mut data = String::new();
+                        let _ = file.read_to_string(&mut data);
+                        data
+                    })
+            })
+            .unwrap_or_default()
     }
 
-    /// get source file name
+    /// Gets a source file name by index.
+    #[must_use]
     pub fn get_source_file_name(&self, index: usize) -> &str {
-        &self.source_file.file[index]
+        self.source_file
+            .file
+            .get(index)
+            .map(String::as_str)
+            .unwrap_or_default()
     }
 
-    /// add parse file and add it's index
+    /// Adds a parse file and returns the new file count.
     pub fn add_parse_file(&mut self, name: String) -> usize {
-        let _ = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(name.clone())
-            .unwrap();
+        if let Err(e) = OpenOptions::new().create(true).append(true).open(&name) {
+            error!("Failed to create parse file {name}: {e}");
+        }
         self.parse_file.file.push(name);
         self.parse_file.file.len()
     }
 
-    /// get parse file index
-    pub fn parse_file_index(&self) -> usize {
+    /// Gets the number of parse files.
+    #[must_use]
+    pub const fn parse_file_index(&self) -> usize {
         self.parse_file.file.len()
     }
 
-    /// write data to last parse file
+    /// Writes data to the last parse file.
     pub fn write_parse_file(&mut self, data: &[u8]) {
-        let file = self.parse_file.file.last().unwrap();
-        let file = OpenOptions::new()
-            .write(true)
-            .append(true)
-            .open(file)
-            .unwrap();
-        let mut write = BufWriter::new(&file);
-        write.write_all(data).unwrap();
-        write.write_all(b"\n").unwrap();
-        write.flush().unwrap();
-    }
-
-    /// read current parse file
-    pub fn read_current_parse_file(&mut self) -> String {
-        match self.parse_file.file.last() {
-            Some(file) => {
-                let mut file = OpenOptions::new().read(true).open(file).unwrap();
-                let mut data = String::new();
-                file.read_to_string(&mut data).unwrap();
-                data
-            }
-            None => String::new(),
+        if let Some(file_path) = self.parse_file.file.last()
+            && let Ok(file) = OpenOptions::new().append(true).open(file_path)
+        {
+            let mut writer = BufWriter::new(file);
+            let _ = writer.write_all(data);
+            let _ = writer.write_all(b"\n");
+            let _ = writer.flush();
         }
     }
 
-    /// get parse file name
-    pub fn get_parse_file_name(&self, index: usize) -> &str {
-        &self.parse_file.file[index]
+    /// Reads the current parse file contents.
+    #[must_use]
+    pub fn read_current_parse_file(&mut self) -> String {
+        self.parse_file
+            .file
+            .last()
+            .and_then(|path| {
+                OpenOptions::new()
+                    .read(true)
+                    .open(path)
+                    .ok()
+                    .map(|mut file| {
+                        let mut data = String::new();
+                        let _ = file.read_to_string(&mut data);
+                        data
+                    })
+            })
+            .unwrap_or_default()
     }
 
-    /// add send data
+    /// Gets a parse file name by index.
+    #[must_use]
+    pub fn get_parse_file_name(&self, index: usize) -> &str {
+        self.parse_file
+            .file
+            .get(index)
+            .map(String::as_str)
+            .unwrap_or_default()
+    }
+
+    /// Queues data to be sent.
     pub fn send_data(&mut self, data: String) {
         self.send_data.push(data);
     }
 
-    /// get send data
+    /// Gets and clears the send data queue.
     pub fn get_send_data(&mut self) -> Vec<String> {
-        let data = self.send_data.clone();
-        self.send_data.clear();
-        data
+        std::mem::take(&mut self.send_data)
     }
 
-    /// clear send data
+    /// Clears the send data queue.
     pub fn clear_send_data(&mut self) {
         self.send_data.clear();
     }
 
-    /// set data type
-    pub fn set_data_type(&mut self, data_type: Type) {
+    /// Sets the data encoding type.
+    pub const fn set_data_type(&mut self, data_type: DataType) {
         self.data_type = data_type;
     }
 
-    /// get cache data
-    pub fn get_cache_data(&mut self) -> &mut CacheData {
+    /// Gets a mutable reference to the cache data.
+    pub const fn get_cache_data(&mut self) -> &mut CacheData {
         &mut self.cache_data
     }
 
-    /// get state
-    pub fn state(&mut self) -> &mut State {
+    /// Gets a mutable reference to the port state.
+    pub const fn state(&mut self) -> &mut PortState {
         &mut self.state
     }
 
-    /// get data type
-    pub fn data_type(&mut self) -> &mut Type {
+    /// Gets a mutable reference to the data type.
+    pub const fn data_type(&mut self) -> &mut DataType {
         &mut self.data_type
     }
 
-    /// get line feed
-    pub fn line_feed(&mut self) -> &mut bool {
+    /// Gets a mutable reference to the line feed setting.
+    pub const fn line_feed(&mut self) -> &mut bool {
         &mut self.line_feed
     }
 }
 
-/// file data
+/// File data storage.
 struct FileData {
-    /// file
+    /// List of file paths.
     file: Vec<String>,
 }
 
-/// serial port state
+/// Serial port state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum State {
-    /// serial port is ready
+pub enum PortState {
+    /// Port is ready for communication.
     Ready,
-    /// serial port is busy
+    /// Port is closed.
     Close,
-    /// serial port is error
+    /// Port encountered an error.
     Error,
 }
 
-impl State {
-    /// serial port is open
-    pub fn is_open(&self) -> bool {
-        matches!(self, State::Ready)
+impl PortState {
+    /// Returns true if the port is open (Ready state).
+    #[must_use]
+    pub const fn is_open(&self) -> bool {
+        matches!(self, Self::Ready)
     }
 
-    /// serial port is close
-    pub fn is_close(&self) -> bool {
-        matches!(self, State::Close)
+    /// Returns true if the port is closed.
+    #[must_use]
+    pub const fn is_close(&self) -> bool {
+        matches!(self, Self::Close)
     }
 
-    /// is error
-    pub fn is_error(&self) -> bool {
-        matches!(self, State::Error)
+    /// Returns true if the port is in error state.
+    #[must_use]
+    pub const fn is_error(&self) -> bool {
+        matches!(self, Self::Error)
     }
 
-    /// open serial port
-    pub fn open(&mut self) {
-        *self = State::Ready;
+    /// Sets the state to Ready.
+    pub const fn open(&mut self) {
+        *self = Self::Ready;
     }
 
-    /// close serial port
-    pub fn close(&mut self) {
-        *self = State::Close;
+    /// Sets the state to Close.
+    pub const fn close(&mut self) {
+        *self = Self::Close;
     }
 
-    /// set error
-    pub fn error(&mut self) {
-        *self = State::Error;
+    /// Sets the state to Error.
+    pub const fn error(&mut self) {
+        *self = Self::Error;
     }
 }
 
-/// serial port data type
+/// Data encoding type for serial communication.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Type {
-    /// binary data
+pub enum DataType {
+    /// Binary data.
     Binary,
-    /// hex data
+    /// Hexadecimal encoding.
     Hex,
-    /// utf8 data
+    /// UTF-8 text.
     Utf8,
-    /// utf16 data
+    /// UTF-16 text.
     Utf16,
-    /// utf32 data
+    /// UTF-32 text.
     Utf32,
-    /// gbk data
-    GBK,
-    /// gb2312 data
-    ASCII,
+    /// GBK encoding.
+    Gbk,
+    /// ASCII text.
+    Ascii,
 }
 
-/// 实现 Display trait 用于友好的字符串表示
-impl fmt::Display for Type {
+impl fmt::Display for DataType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Type::Binary => write!(f, "二进制"),
-            Type::Hex => write!(f, "十六进制"),
-            Type::Utf8 => write!(f, "UTF-8"),
-            Type::Utf16 => write!(f, "UTF-16"),
-            Type::Utf32 => write!(f, "UTF-32"),
-            Type::GBK => write!(f, "GBK"),
-            Type::ASCII => write!(f, "ASCII"),
+            Self::Binary => write!(f, "Binary"),
+            Self::Hex => write!(f, "Hex"),
+            Self::Utf8 => write!(f, "UTF-8"),
+            Self::Utf16 => write!(f, "UTF-16"),
+            Self::Utf32 => write!(f, "UTF-32"),
+            Self::Gbk => write!(f, "GBK"),
+            Self::Ascii => write!(f, "ASCII"),
         }
     }
 }
 
-/// 可选：实现一个方法来获取英文描述
-impl Type {
-    pub fn as_str_en(&self) -> &'static str {
+impl DataType {
+    /// Gets the English name of the data type.
+    #[must_use]
+    pub const fn as_str_en(&self) -> &'static str {
         match self {
-            Type::Binary => "Binary",
-            Type::Hex => "Hexadecimal",
-            Type::Utf8 => "UTF-8",
-            Type::Utf16 => "UTF-16",
-            Type::Utf32 => "UTF-32",
-            Type::GBK => "GBK",
-            Type::ASCII => "ASCII",
+            Self::Binary => "Binary",
+            Self::Hex => "Hexadecimal",
+            Self::Utf8 => "UTF-8",
+            Self::Utf16 => "UTF-16",
+            Self::Utf32 => "UTF-32",
+            Self::Gbk => "GBK",
+            Self::Ascii => "ASCII",
         }
     }
 
-    /// 获取编码描述
-    pub fn description(&self) -> &'static str {
+    /// Gets a description of the data type.
+    #[must_use]
+    pub const fn description(&self) -> &'static str {
         match self {
-            Type::Binary => "二进制数据格式",
-            Type::Hex => "十六进制数据格式",
-            Type::Utf8 => "UTF-8 文本编码",
-            Type::Utf16 => "UTF-16 文本编码",
-            Type::Utf32 => "UTF-32 文本编码",
-            Type::GBK => "GBK 中文编码",
-            Type::ASCII => "ASCII 文本编码",
+            Self::Binary => "Binary data format",
+            Self::Hex => "Hexadecimal data format",
+            Self::Utf8 => "UTF-8 text encoding",
+            Self::Utf16 => "UTF-16 text encoding",
+            Self::Utf32 => "UTF-32 text encoding",
+            Self::Gbk => "GBK Chinese encoding",
+            Self::Ascii => "ASCII text encoding",
         }
     }
 }
 
-/// serial port write and read data, used to communicate with different threads
+/// Data for port read/write operations.
 #[derive(Clone, Debug)]
 pub struct PorRWData {
-    /// data
+    /// The raw data bytes.
     pub data: Vec<u8>,
 }
 
-/// serial port data, used to communicate with different threads
+/// Channel data for communication between threads.
 #[derive(Clone, Debug)]
 pub enum PortChannelData {
-    /// get all available serial ports
+    /// Available port names.
     PortName(Vec<String>),
-    /// write data to serial port
+    /// Data to write to the port.
     PortWrite(PorRWData),
-    /// read data from serial port
+    /// Data read from the port.
     PortRead(PorRWData),
-    /// open serial port
+    /// Request to open the port.
     PortOpen,
-    /// close serial port
+    /// Request to close the port.
     PortClose(String),
-    /// serial state
-    PortState(State),
-    /// error
+    /// Port state change.
+    PortState(PortState),
+    /// Port error occurred.
     PortError(PorRWData),
 }
 
-/// convert PortChannelData to Vec<String>
-impl Into<Vec<String>> for PortChannelData {
-    fn into(self) -> Vec<String> {
-        match self {
+impl From<PortChannelData> for Vec<String> {
+    fn from(data: PortChannelData) -> Self {
+        match data {
             PortChannelData::PortName(names) => names,
-            _ => Vec::new(),
+            _ => Self::new(),
         }
     }
 }
 
-/// data source
+/// Data source identifier for logging.
 pub enum DataSource {
-    /// write data
+    /// Data was written/sent.
     Write,
-    /// read data
+    /// Data was read/received.
     Read,
-    /// error
+    /// Error message.
     Error,
 }
 
-/// implement Display for DataSource
 impl fmt::Display for DataSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DataSource::Write => write!(f, "写入"),
-            DataSource::Read => write!(f, "读取"),
-            DataSource::Error => write!(f, "错误"),
+            Self::Write => write!(f, "Write"),
+            Self::Read => write!(f, "Read"),
+            Self::Error => write!(f, "Error"),
         }
     }
 }
 
-/// Llm data
-pub struct Llm{
+/// LLM configuration for AI features.
+pub struct LlmConfig {
+    /// Whether LLM features are enabled.
     pub enable: bool,
+    /// API key for the LLM service.
     pub key: String,
-    pub model: Model,
-    pub stored_message: Vec<Message>,
-    pub current_message: Vec<Message>,
+    /// Model name.
+    pub model: String,
+    /// Stored conversation history.
+    pub stored_message: Vec<LlmMessage>,
+    /// Current conversation.
+    pub current_message: Vec<LlmMessage>,
+    /// Associated file names.
     pub file_name: Vec<String>,
+    /// Current LLM state.
     pub state: LlmState,
 }
 
-impl Llm {
+impl Default for LlmConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LlmConfig {
+    /// Creates a new LLM configuration.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             enable: false,
-            key: String::from("02e174e7b38643ab8bc3b4f839964f67.a4hccqYJNBXXzwp2"),
-            model: Model::GLM4Flash,
-            stored_message: vec![],
-            current_message: vec![],
-            file_name: vec![],
+            key: String::new(),
+            model: String::from("glm-4-flash"),
+            stored_message: Vec::new(),
+            current_message: Vec::new(),
+            file_name: Vec::new(),
             state: LlmState::default(),
         }
     }
 
-    /// get enable
-    pub fn enable(&mut self) -> &mut bool {
+    /// Gets a mutable reference to the enable flag.
+    pub const fn enable(&mut self) -> &mut bool {
         &mut self.enable
     }
 
-    /// set key
+    /// Sets the API key.
     pub fn set_key(&mut self, key: &str) {
         self.key = key.to_string();
     }
 
-    /// set model
-    pub fn set_model(&mut self, model: Model) {
-        self.model = model;
+    /// Sets the model name.
+    pub fn set_model(&mut self, model: &str) {
+        self.model = model.to_string();
     }
 
-    /// get model
-    pub fn get_model(&self) -> Model {
-        self.model.clone()
+    /// Gets the model name.
+    #[must_use]
+    pub fn get_model(&self) -> &str {
+        &self.model
     }
 
-    /// store message
-    pub fn store_message(&mut self, message: Message) {
+    /// Stores a message in history.
+    pub fn store_message(&mut self, message: LlmMessage) {
         self.stored_message.push(message);
     }
 
-    /// get stored message
-    pub fn get_stored_message(&self) -> Vec<Message> {
-        self.stored_message.clone()
+    /// Gets stored messages.
+    #[must_use]
+    pub fn get_stored_message(&self) -> &[LlmMessage] {
+        &self.stored_message
     }
 
-    /// set current message
-    pub fn set_current_message(&mut self, message: Vec<Message>) {
+    /// Sets the current conversation.
+    pub fn set_current_message(&mut self, message: Vec<LlmMessage>) {
         self.current_message = message;
     }
 
-    /// get current message
-    pub fn get_current_message(&self) -> Vec<Message> {
-        self.current_message.clone()
+    /// Gets current messages.
+    #[must_use]
+    pub fn get_current_message(&self) -> &[LlmMessage] {
+        &self.current_message
     }
 
-    /// clear current message
+    /// Clears current messages.
     pub fn clear_current_message(&mut self) {
         self.current_message.clear();
     }
 
-    /// store file name
+    /// Adds a file name.
     pub fn set_file_name(&mut self, file_name: &str) {
         self.file_name.push(file_name.to_string());
     }
 }
 
-/// LLM state
+/// A message in an LLM conversation.
+#[derive(Clone, Debug)]
+pub struct LlmMessage {
+    /// The role (user, assistant, system).
+    pub role: String,
+    /// The message content.
+    pub content: String,
+}
+
+/// LLM operation state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LlmState {
+    /// Ready to process requests.
+    #[default]
     Ready,
+    /// Currently processing a request.
     Processing,
+    /// An error occurred.
     Error,
 }
 
 impl LlmState {
-
-    /// if State is ready
-    pub fn is_ready(&self) -> bool {
-        matches!(self, LlmState::Ready)
+    /// Returns true if ready.
+    #[must_use]
+    pub const fn is_ready(&self) -> bool {
+        matches!(self, Self::Ready)
     }
 
-    /// if State is processing
-    pub fn is_processing(&self) -> bool {
-        matches!(self, LlmState::Processing)
+    /// Returns true if processing.
+    #[must_use]
+    pub const fn is_processing(&self) -> bool {
+        matches!(self, Self::Processing)
     }
 
-    /// if State is error
-    pub fn is_error(&self) -> bool {
-        matches!(self, LlmState::Error)
+    /// Returns true if in error state.
+    #[must_use]
+    pub const fn is_error(&self) -> bool {
+        matches!(self, Self::Error)
     }
 
-    /// set state
-    pub fn set_state(&mut self, state: LlmState) {
+    /// Sets the state.
+    pub const fn set_state(&mut self, state: Self) {
         *self = state;
     }
 }
 
-impl Default for LlmState {
-    fn default() -> Self {
-        LlmState::Ready
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_port_settings_default() {
+        let settings = PortSettings::default();
+        assert_eq!(settings.baud_rate, 115200);
+        assert_eq!(settings.data_bits, DataBits::Eight);
+        assert_eq!(settings.stop_bits, StopBits::One);
+        assert_eq!(settings.parity, Parity::None);
+    }
+
+    #[test]
+    fn test_state_transitions() {
+        let mut state = PortState::Close;
+        assert!(state.is_close());
+
+        state.open();
+        assert!(state.is_open());
+
+        state.error();
+        assert!(state.is_error());
+
+        state.close();
+        assert!(state.is_close());
+    }
+
+    #[test]
+    fn test_data_type_display() {
+        assert_eq!(format!("{}", DataType::Hex), "Hex");
+        assert_eq!(format!("{}", DataType::Utf8), "UTF-8");
+    }
+
+    #[test]
+    fn test_cache_data_history() {
+        let mut cache = CacheData::new();
+        cache.add_history_data("command1".to_string());
+        cache.add_history_data("command2".to_string());
+
+        assert_eq!(cache.get_current_data_index(), 2);
+
+        cache.sub_history_index();
+        let cmd = cache.get_history_data(cache.get_current_data_index());
+        assert_eq!(cmd, "command1");
+    }
+
+    #[test]
+    fn test_cache_data_no_duplicate() {
+        let mut cache = CacheData::new();
+        cache.add_history_data("command1".to_string());
+        cache.add_history_data("command1".to_string());
+
+        assert_eq!(cache.history_data.len(), 1);
+    }
+
+    #[test]
+    fn test_port_channel_data_conversion() {
+        let data = PortChannelData::PortName(vec!["COM1".to_string(), "COM2".to_string()]);
+        let names: Vec<String> = data.into();
+        assert_eq!(names.len(), 2);
+
+        let data = PortChannelData::PortOpen;
+        let names: Vec<String> = data.into();
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn test_llm_config() {
+        let mut config = LlmConfig::new();
+        assert!(!*config.enable());
+        assert_eq!(config.get_model(), "glm-4-flash");
+
+        config.set_model("gpt-4");
+        assert_eq!(config.get_model(), "gpt-4");
+    }
+
+    #[test]
+    fn test_llm_state() {
+        let mut state = LlmState::Ready;
+        assert!(state.is_ready());
+
+        state.set_state(LlmState::Processing);
+        assert!(state.is_processing());
+
+        state.set_state(LlmState::Error);
+        assert!(state.is_error());
     }
 }

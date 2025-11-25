@@ -2,15 +2,72 @@
 name = "serial_bevy"
 version = "0.1.0"
 edition = "2024"
+description = "A serial port communication tool built with Bevy game engine"
+license = "MIT"
+authors = ["AnlangA"]
+repository = "https://github.com/AnlangA/serial_bevy"
+keywords = ["serial", "bevy", "gui", "communication"]
+categories = ["gui", "hardware-support"]
 
 [dependencies]
-bevy = { version = "0.15", features = [] }
-bevy_egui = "0.32"
+# Bevy game engine and UI
+bevy = { version = "0.17", default-features = false, features = [
+    "bevy_asset",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_gilrs",
+    "bevy_gizmos",
+    "bevy_gltf",
+    "bevy_log",
+    "bevy_pbr",
+    "bevy_picking",
+    "bevy_render",
+    "bevy_sprite",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_winit",
+    "default_font",
+    "multi_threaded",
+    "png",
+    "wayland",
+    "x11",
+] }
+bevy_egui = "0.38"
+
+# Async runtime and serial communication
+tokio = { version = "1.48", features = ["full"] }
 tokio-serial = "5.4"
+
+# Logging
 env_logger = "0.11"
-hex = "0.4"
 log = "0.4"
+
+# Utilities
+hex = "0.4"
 chrono = "0.4"
-tokio = {version = "1", features = ["full"]}
-regex = "1.11.1"
-zhipuai-rs = "0.1.2"
+regex = "1.12"
+thiserror = "1.0"
+
+# AI integration
+zhipuai-rs = "0.2"
+
+[dev-dependencies]
+# Testing utilities
+mockall = "0.13"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 1
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+mut_mutex_lock = "allow"
