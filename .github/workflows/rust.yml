@@ -3,11 +3,10 @@ name: Serial Bevy CI/CD
 on:
   push:
     branches: ["master", "main"]
+    tags:
+      - "v*"
   pull_request:
     branches: ["master", "main"]
-  push:
-    tags:
-      - 'v*'
 
 env:
   CARGO_TERM_COLOR: always
