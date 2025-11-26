@@ -366,6 +366,8 @@ pub struct PortData {
     data_type: DataType,
     /// Whether to include line feeds in sent data.
     line_feed: bool,
+    /// Buffer for incomplete UTF-8 sequences.
+    utf8_buffer: Vec<u8>,
 }
 
 impl Default for PortData {
@@ -386,6 +388,7 @@ impl PortData {
             state: PortState::Close,
             data_type: DataType::Utf8,
             line_feed: false,
+            utf8_buffer: Vec::new(),
         }
     }
 
@@ -592,6 +595,108 @@ impl PortData {
     /// Gets a mutable reference to the line feed setting.
     pub const fn line_feed(&mut self) -> &mut bool {
         &mut self.line_feed
+    }
+
+    /// Processes raw bytes with UTF-8 buffer handling.
+    pub fn process_raw_bytes(&mut self, data: &[u8]) -> Vec<u8> {
+        // Add new data to buffer
+        self.utf8_buffer.extend_from_slice(data);
+        
+        // Try to decode as much as possible
+        let (valid_str, incomplete_len) = self.extract_valid_utf8();
+        
+        // Remove processed bytes from buffer
+        if incomplete_len > 0 {
+            self.utf8_buffer.drain(..(self.utf8_buffer.len() - incomplete_len));
+        } else {
+            self.utf8_buffer.clear();
+        }
+        
+        valid_str.as_bytes().to_vec()
+    }
+
+    /// Extracts valid UTF-8 from buffer, returns (valid_string, incomplete_bytes_count)
+    fn extract_valid_utf8(&self) -> (String, usize) {
+        if self.utf8_buffer.is_empty() {
+            return (String::new(), 0);
+        }
+
+        // Try to decode the entire buffer
+        match std::str::from_utf8(&self.utf8_buffer) {
+            Ok(valid_str) => {
+                // All bytes are valid UTF-8
+                (valid_str.to_string(), 0)
+            }
+            Err(e) => {
+                let valid_len = e.valid_up_to();
+                if valid_len > 0 {
+                    // We have some valid UTF-8 at the beginning
+                    let valid_str = std::str::from_utf8(&self.utf8_buffer[..valid_len])
+                        .unwrap_or("�"); // Fallback to replacement char
+                    (valid_str.to_string(), self.utf8_buffer.len() - valid_len)
+                } else {
+                    // No valid UTF-8 at start, check if we have incomplete UTF-8 at end
+                    let incomplete_len = self.count_incomplete_utf8_suffix();
+                    if incomplete_len > 0 && incomplete_len < 4 {
+                        // Likely incomplete UTF-8 sequence, keep it for next time
+                        let valid_len = self.utf8_buffer.len() - incomplete_len;
+                        if valid_len > 0 {
+                            let valid_str = std::str::from_utf8(&self.utf8_buffer[..valid_len])
+                                .unwrap_or("�");
+                            (valid_str.to_string(), incomplete_len)
+                        } else {
+                            // All bytes are incomplete, keep them all
+                            (String::new(), incomplete_len)
+                        }
+                    } else {
+                        // Invalid UTF-8, replace with replacement char
+                        ("�".to_string(), 0)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Counts incomplete UTF-8 sequence at the end of buffer
+    fn count_incomplete_utf8_suffix(&self) -> usize {
+        if self.utf8_buffer.is_empty() {
+            return 0;
+        }
+
+        // Check last 1-3 bytes for incomplete UTF-8 sequence
+        let len = self.utf8_buffer.len();
+        let check_len = std::cmp::min(3, len);
+        
+        for i in 1..=check_len {
+            let start = len - i;
+            let slice = &self.utf8_buffer[start..];
+            
+            // Check if this could be the start of a UTF-8 sequence
+            if slice[0] >= 0x80 {
+                // This is a continuation byte or start of multi-byte sequence
+                // Check if it's a valid UTF-8 start byte
+                if (slice[0] & 0xE0) == 0xC0 && i >= 1 && i <= 2 {
+                    // 2-byte sequence
+                    return if i == 1 { 1 } else { 0 };
+                } else if (slice[0] & 0xF0) == 0xE0 && i >= 1 && i <= 3 {
+                    // 3-byte sequence
+                    return if i <= 2 { i } else { 0 };
+                } else if (slice[0] & 0xF8) == 0xF0 && i >= 1 && i <= 4 {
+                    // 4-byte sequence
+                    return if i <= 3 { i } else { 0 };
+                } else if (slice[0] & 0xC0) == 0x80 {
+                    // Continuation byte
+                    return i;
+                }
+            }
+        }
+        
+        0
+    }
+
+    /// Clears the UTF-8 buffer.
+    pub fn clear_utf8_buffer(&mut self) {
+        self.utf8_buffer.clear();
     }
 }
 

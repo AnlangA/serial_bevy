@@ -456,15 +456,25 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
                             serial.open();
                         } else {
                             serial.close();
+                            serial.data().clear_utf8_buffer();
                         }
                         serial.data().clear_send_data();
                     }
                     PortState::Error => {
                         serial.error();
+                        serial.data().clear_utf8_buffer();
                     }
                 },
                 PortChannelData::PortRead(data) => {
-                    let decoded = decode_bytes(&data.data, *serial.data().data_type());
+                    let processed_data = if *serial.data().data_type() == DataType::Utf8 {
+                        // Use UTF-8 buffer processing for UTF-8 data
+                        serial.data().process_raw_bytes(&data.data)
+                    } else {
+                        // For other data types, use raw data directly
+                        data.data.clone()
+                    };
+                    
+                    let decoded = decode_bytes(&processed_data, *serial.data().data_type());
                     serial
                         .data()
                         .write_source_file(decoded.as_bytes(), DataSource::Read);
