@@ -394,8 +394,9 @@ impl PortData {
     /// Sanitization rules:
     /// - Leading `/` or `\` is stripped (prevents absolute paths).
     /// - Inner `/` or `\` are replaced with `_`.
-    /// The final stored path is always `logs/<sanitized_name>`.
-    /// On failure to create the file, an error is logged but the path is still recorded.
+    ///
+    ///   The final stored path is always `logs/<sanitized_name>`.
+    ///   On failure to create the file, an error is logged but the path is still recorded.
     pub fn add_source_file(&mut self, name: String) -> usize {
         // Ensure logs directory exists (best-effort; ignore errors here).
         let _ = std::fs::create_dir_all("logs");
