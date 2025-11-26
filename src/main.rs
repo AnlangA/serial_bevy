@@ -12,8 +12,8 @@
 //! - Optional LLM integration
 
 use bevy::prelude::*;
-use serial_bevy::prelude::*;
 use serial_bevy::fonts::FontConfig;
+use serial_bevy::prelude::*;
 
 /// Application entry point.
 fn main() {
@@ -30,8 +30,9 @@ fn main() {
                 .build(),
         )
         .add_plugins(SerialPlugin)
-        .add_plugins(EguiFontPlugin::default()
-            .with_font_config(FontConfig::new("Song", "assets/fonts/STSong.ttf").primary())
+        .add_plugins(
+            EguiFontPlugin::default()
+                .with_font_config(FontConfig::new("Song", "assets/fonts/STSong.ttf").primary()),
         )
         .add_plugins(SerialUiPlugin)
         .run();
