@@ -99,7 +99,6 @@ impl Plugin for SerialUiPlugin {
             .insert_resource(ClearColor(Color::srgb(0.96875, 0.96875, 0.96875)))
             .insert_resource(Selected::default())
             .add_systems(Startup, setup_camera_system)
-            .add_systems(Startup, ui_init)
             .add_systems(Startup, load_panel_widths)
             .add_systems(PostUpdate, save_panel_widths_on_exit)
             .add_systems(
@@ -113,41 +112,6 @@ impl Plugin for SerialUiPlugin {
                     .chain(),
             );
     }
-}
-
-/// Initialize fonts & theme (inject Chinese font "Song").
-fn ui_init(mut ctx: EguiContexts) {
-    let Ok(ctx) = ctx.ctx_mut() else {
-        return;
-    };
-
-    // Try to load font from runtime path; gracefully fallback to defaults if missing.
-    let mut fonts = egui::FontDefinitions::default();
-    let song_bytes = std::fs::read("assets/fonts/STSong.ttf").ok();
-
-    if let Some(bytes) = song_bytes {
-        fonts
-            .font_data
-            .insert("Song".to_owned(), egui::FontData::from_owned(bytes).into());
-        // Register "Song" family and prefer it for proportional and monospace.
-        fonts.families.insert(
-            egui::FontFamily::Name("Song".into()),
-            vec!["Song".to_owned()],
-        );
-        fonts
-            .families
-            .entry(egui::FontFamily::Proportional)
-            .or_default()
-            .insert(0, "Song".to_owned());
-        fonts
-            .families
-            .entry(egui::FontFamily::Monospace)
-            .or_default()
-            .insert(0, "Song".to_owned());
-    }
-
-    ctx.set_fonts(fonts);
-    ctx.set_theme(egui::Theme::Light);
 }
 
 /// Composite UI: left & right side panels (resizable, persistent widths) + central content.

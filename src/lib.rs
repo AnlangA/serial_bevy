@@ -26,12 +26,14 @@
 #![allow(clippy::mut_mutex_lock)]
 
 pub mod error;
+pub mod fonts;
 pub mod serial;
 pub mod serial_ui;
 
 /// Re-exports for convenience
 pub mod prelude {
     pub use crate::error::*;
+    pub use crate::fonts::EguiFontPlugin;
     pub use crate::serial::SerialPlugin;
     pub use crate::serial_ui::SerialUiPlugin;
 }

@@ -29,6 +29,7 @@ fn main() {
                 .build(),
         )
         .add_plugins(SerialPlugin)
+        .add_plugins(EguiFontPlugin::default().with_font("Song", "assets/fonts/STSong.ttf"))
         .add_plugins(SerialUiPlugin)
         .run();
 }
