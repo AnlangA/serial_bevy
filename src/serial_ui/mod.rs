@@ -53,13 +53,13 @@ impl Default for PanelWidths {
 fn load_panel_widths_from_disk() -> PanelWidths {
     if let Ok(raw) = std::fs::read_to_string(PANEL_WIDTHS_FILE) {
         let parts: Vec<_> = raw.split_whitespace().collect();
-        if parts.len() == 2 {
-            if let (Ok(lw), Ok(rw)) = (parts[0].parse::<f32>(), parts[1].parse::<f32>()) {
-                return PanelWidths {
-                    left_width: lw.clamp(120.0, 600.0),
-                    right_width: rw.clamp(160.0, 800.0),
-                };
-            }
+        if parts.len() == 2
+            && let (Ok(lw), Ok(rw)) = (parts[0].parse::<f32>(), parts[1].parse::<f32>())
+        {
+            return PanelWidths {
+                left_width: lw.clamp(120.0, 600.0),
+                right_width: rw.clamp(160.0, 800.0),
+            };
         }
     }
     PanelWidths::default()
