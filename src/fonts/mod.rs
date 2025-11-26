@@ -6,12 +6,14 @@
 //!
 //! ## Usage
 //!
-//! ```rust
-//! # use bevy::prelude::*;
-//! # use bevy_egui::{EguiPlugin, EguiContexts};
-//! # use crate::fonts::EguiFontPlugin;
-//! #
-//! # fn main() {
+//! Add this plugin to your Bevy app:
+//!
+//! ```no_run
+//! use bevy::prelude::*;
+//! use bevy_egui::{EguiPlugin};
+//! # use serial_bevy::fonts::{EguiFontPlugin, FontConfig};
+//! # use bevy_egui::egui;
+//!
 //! App::new()
 //!     .add_plugins(DefaultPlugins)
 //!     .add_plugins(EguiPlugin::default())
@@ -21,9 +23,7 @@
 //!             .with_font("Custom", "assets/fonts/CustomFont.ttf")
 //!             .with_font_config( FontConfig::new("Song", "assets/fonts/STSong.ttf").primary() )
 //!             .with_theme(egui::Theme::Light)
-//!     )
-//!     .run();
-//! # }
+//!     );
 //! ```
 
 use bevy::prelude::*;
