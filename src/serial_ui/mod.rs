@@ -186,7 +186,12 @@ fn serial_ui(
         });
         ui.separator();
 
-        // Data receive area
+        // Use remaining vertical space for data receive area
+        let available_height = ui.available_height();
+        let input_height = 120.0; // Reserve height for input area
+        let data_height = available_height - input_height;
+
+        // Data receive area with fixed height
         for serial in &mut serials_data.serial {
             let Ok(mut serial) = serial.lock() else {
                 continue;
@@ -196,6 +201,7 @@ fn serial_ui(
                 egui::ScrollArea::vertical()
                     .stick_to_bottom(true)
                     .auto_shrink([false, false])
+                    .max_height(data_height)
                     .show(ui, |ui| {
                         if data.is_empty() {
                             ui.heading(
@@ -212,32 +218,41 @@ fn serial_ui(
             }
         }
 
-        // Bottom input area (bottom-up layout keeps controls anchored)
-        ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-            for serial in &mut serials_data.serial {
-                let Ok(mut serial) = serial.lock() else {
-                    continue;
-                };
-                if selected.is_selected(&serial.set.port_name) {
-                    let font = egui::FontId::new(18.0, egui::FontFamily::Monospace);
-                    ui.add(
-                        egui::TextEdit::multiline(
-                            serial.data().get_cache_data().get_current_data(),
-                        )
-                        .font(font)
-                        .desired_width(ui.available_width()),
-                    );
-                    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+        // Add separator before input area
+        ui.separator();
+
+        // Bottom input area with fixed height
+        ui.allocate_ui_with_layout(
+            egui::Vec2::new(ui.available_width(), input_height),
+            egui::Layout::top_down(egui::Align::LEFT),
+            |ui| {
+                for serial in &mut serials_data.serial {
+                    let Ok(mut serial) = serial.lock() else {
+                        continue;
+                    };
+                    if selected.is_selected(&serial.set.port_name) {
+                        // Control buttons at top of input area
                         ui.horizontal(|ui| {
                             data_type_ui(ui, &mut serial);
                             data_line_feed_ui(ui, &mut serial);
                             llm_ui(ui, &mut serial);
                         });
-                    });
-                    ui.separator();
+                        
+                        // Text input area
+                        let available_height = ui.available_height() - 30.0; // Leave space for margins
+                        let font = egui::FontId::new(18.0, egui::FontFamily::Monospace);
+                        ui.add_sized(
+                            [ui.available_width(), available_height],
+                            egui::TextEdit::multiline(
+                                serial.data().get_cache_data().get_current_data(),
+                            )
+                            .font(font)
+                            .desired_width(f32::INFINITY),
+                        );
+                    }
                 }
-            }
-        });
+            },
+        );
     });
 
     // ---------------- Right Side Panel (LLM) ----------------
