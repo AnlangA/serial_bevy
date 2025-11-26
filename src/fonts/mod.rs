@@ -7,23 +7,23 @@
 //! ## Usage
 //!
 //! ```rust
-//! use bevy::prelude::*;
-//! use bevy_egui::{EguiPlugin, EguiContexts};
-//! use crate::fonts::EguiFontPlugin;
-//!
-//! fn main() {
-//!     App::new()
-//!         .add_plugins(DefaultPlugins)
-//!         .add_plugins(EguiPlugin::default())
-//!         .add_plugins(
-//!             EguiFontPlugin::default()
-//!                 .with_font("Song", "assets/fonts/STSong.ttf")
-//!                 .with_font("Custom", "assets/fonts/CustomFont.ttf")
-//!                 .with_font_config( FontConfig::new("Song", "assets/fonts/STSong.ttf").primary() )
-//!                 .with_theme(egui::Theme::Light)
-//!         )
-//!         .run();
-//! }
+//! # use bevy::prelude::*;
+//! # use bevy_egui::{EguiPlugin, EguiContexts};
+//! # use crate::fonts::EguiFontPlugin;
+//! #
+//! # fn main() {
+//! App::new()
+//!     .add_plugins(DefaultPlugins)
+//!     .add_plugins(EguiPlugin::default())
+//!     .add_plugins(
+//!         EguiFontPlugin::default()
+//!             .with_font("Song", "assets/fonts/STSong.ttf")
+//!             .with_font("Custom", "assets/fonts/CustomFont.ttf")
+//!             .with_font_config( FontConfig::new("Song", "assets/fonts/STSong.ttf").primary() )
+//!             .with_theme(egui::Theme::Light)
+//!     )
+//!     .run();
+//! # }
 //! ```
 
 use bevy::prelude::*;
