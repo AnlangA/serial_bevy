@@ -456,14 +456,11 @@ impl PortData {
             format!("[{source}]")
         };
 
-        // Clean ANSI escape sequences from data
-        let cleaned_data = self.clean_ansi_sequences(data);
-
         if let Ok(file) = OpenOptions::new().append(true).open(file_path) {
             let mut writer = BufWriter::new(file);
             let mut combined = Vec::new();
             combined.extend_from_slice(head.as_bytes());
-            combined.extend_from_slice(&cleaned_data);
+            combined.extend_from_slice(data);
             let _ = writer.write_all(b"\n");
             let _ = writer.write_all(&combined);
             let _ = writer.flush();
@@ -618,17 +615,18 @@ impl PortData {
     pub fn process_raw_bytes(&mut self, data: &[u8]) -> Vec<u8> {
         // Add new data to buffer
         self.utf8_buffer.extend_from_slice(data);
-        
+
         // Try to decode as much as possible
         let (valid_str, incomplete_len) = self.extract_valid_utf8();
-        
+
         // Remove processed bytes from buffer
         if incomplete_len > 0 {
-            self.utf8_buffer.drain(..(self.utf8_buffer.len() - incomplete_len));
+            self.utf8_buffer
+                .drain(..(self.utf8_buffer.len() - incomplete_len));
         } else {
             self.utf8_buffer.clear();
         }
-        
+
         valid_str.as_bytes().to_vec()
     }
 
@@ -648,8 +646,8 @@ impl PortData {
                 let valid_len = e.valid_up_to();
                 if valid_len > 0 {
                     // We have some valid UTF-8 at the beginning
-                    let valid_str = std::str::from_utf8(&self.utf8_buffer[..valid_len])
-                        .unwrap_or("�"); // Fallback to replacement char
+                    let valid_str =
+                        std::str::from_utf8(&self.utf8_buffer[..valid_len]).unwrap_or("�"); // Fallback to replacement char
                     (valid_str.to_string(), self.utf8_buffer.len() - valid_len)
                 } else {
                     // No valid UTF-8 at start, check if we have incomplete UTF-8 at end
@@ -658,8 +656,8 @@ impl PortData {
                         // Likely incomplete UTF-8 sequence, keep it for next time
                         let valid_len = self.utf8_buffer.len() - incomplete_len;
                         if valid_len > 0 {
-                            let valid_str = std::str::from_utf8(&self.utf8_buffer[..valid_len])
-                                .unwrap_or("�");
+                            let valid_str =
+                                std::str::from_utf8(&self.utf8_buffer[..valid_len]).unwrap_or("�");
                             (valid_str.to_string(), incomplete_len)
                         } else {
                             // All bytes are incomplete, keep them all
@@ -683,11 +681,11 @@ impl PortData {
         // Check last 1-3 bytes for incomplete UTF-8 sequence
         let len = self.utf8_buffer.len();
         let check_len = std::cmp::min(3, len);
-        
+
         for i in 1..=check_len {
             let start = len - i;
             let slice = &self.utf8_buffer[start..];
-            
+
             // Check if this could be the start of a UTF-8 sequence
             if slice[0] >= 0x80 {
                 // This is a continuation byte or start of multi-byte sequence
@@ -707,7 +705,7 @@ impl PortData {
                 }
             }
         }
-        
+
         0
     }
 
