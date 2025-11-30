@@ -273,6 +273,47 @@ pub fn data_line_feed_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>)
     });
 }
 
+/// Draws timestamp toggle button.
+pub fn timestamp_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    ui.horizontal(|ui| {
+        let timestamp_enabled = *serial.data().timestamp_enabled();
+        let button_text = if timestamp_enabled {
+            "No Timestamp"
+        } else {
+            "With Timestamp"
+        };
+        if ui.button(button_text).on_hover_text("Toggle timestamp in logs").clicked() {
+            *serial.data().timestamp_enabled() = !timestamp_enabled;
+        }
+    });
+}
+
+/// Draws log timeout setting.
+pub fn log_timeout_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    ui.horizontal(|ui| {
+        ui.label("Log Timeout:");
+        let timeout_ms = serial.data().log_timeout().as_millis();
+        let mut timeout_str = if timeout_ms == 0 {
+            "0".to_string()
+        } else {
+            timeout_ms.to_string()
+        };
+        
+        ui.add_sized(
+            [80.0, 20.0],
+            egui::TextEdit::singleline(&mut timeout_str)
+        );
+        
+        if ui.button("Set").clicked() {
+            if let Ok(ms) = timeout_str.parse::<u64>() {
+                *serial.data().log_timeout() = std::time::Duration::from_millis(ms);
+            }
+        }
+        
+        ui.label("ms (0=disabled)");
+    });
+}
+
 /// Draws the LLM toggle button.
 pub fn llm_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     ui.horizontal(|ui| {

@@ -25,7 +25,7 @@ use ui::{
     Selected, data_line_feed_ui, data_type_ui, draw_baud_rate_selector, draw_data_bits_selector,
     draw_flow_control_selector, draw_parity_selector, draw_select_serial_ui,
     draw_serial_context_label_ui, draw_serial_context_ui, draw_serial_setting_ui,
-    draw_stop_bits_selector, llm_ui,
+    draw_stop_bits_selector, log_timeout_ui, llm_ui, timestamp_ui,
 };
 
 /// Panel width persistence file name.
@@ -165,6 +165,7 @@ fn serial_ui(
                         draw_stop_bits_selector(ui, &mut serial);
                         draw_data_bits_selector(ui, &mut serial);
                         draw_baud_rate_selector(ui, &mut serial);
+                        log_timeout_ui(ui, &mut serial);
                     }
                 }
                 ui.separator();
@@ -235,6 +236,7 @@ fn serial_ui(
                         ui.horizontal(|ui| {
                             data_type_ui(ui, &mut serial);
                             data_line_feed_ui(ui, &mut serial);
+                            timestamp_ui(ui, &mut serial);
                             llm_ui(ui, &mut serial);
                         });
                         
