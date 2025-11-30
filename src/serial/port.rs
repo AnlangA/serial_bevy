@@ -6,6 +6,7 @@ use log::{error, info};
 use std::fmt;
 use std::fs::OpenOptions;
 use std::io::{BufReader, BufWriter, Read, Write};
+use std::time::Instant;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
@@ -368,6 +369,12 @@ pub struct PortData {
     line_feed: bool,
     /// Buffer for incomplete UTF-8 sequences.
     utf8_buffer: Vec<u8>,
+    /// Whether to include timestamps in logs.
+    timestamp_enabled: bool,
+    /// Timeout duration for auto line breaks in logs (0 = disabled).
+    log_timeout: Duration,
+    /// Last data receive time for timeout handling.
+    last_receive_time: Option<std::time::Instant>,
 }
 
 impl Default for PortData {
@@ -389,6 +396,9 @@ impl PortData {
             data_type: DataType::Utf8,
             line_feed: false,
             utf8_buffer: Vec::new(),
+            timestamp_enabled: false,
+            log_timeout: Duration::from_millis(0),
+            last_receive_time: None,
         }
     }
 
@@ -431,22 +441,29 @@ impl PortData {
         self.source_file.file.len()
     }
 
-    /// Writes data to the last source file with timestamp.
+    /// Writes data to the last source file with optional timestamp.
     pub fn write_source_file(&mut self, data: &[u8], source: DataSource) {
         let Some(file_path) = self.source_file.file.last() else {
             return;
         };
 
-        let time = chrono::Local::now()
-            .format("%Y%m%d %H:%M:%S.%3f")
-            .to_string();
-        let head = format!("[{time} {source}]");
+        let head = if self.timestamp_enabled {
+            let time = chrono::Local::now()
+                .format("%Y%m%d %H:%M:%S.%3f")
+                .to_string();
+            format!("[{time} {source}]")
+        } else {
+            format!("[{source}]")
+        };
+
+        // Clean ANSI escape sequences from data
+        let cleaned_data = self.clean_ansi_sequences(data);
 
         if let Ok(file) = OpenOptions::new().append(true).open(file_path) {
             let mut writer = BufWriter::new(file);
             let mut combined = Vec::new();
             combined.extend_from_slice(head.as_bytes());
-            combined.extend_from_slice(data);
+            combined.extend_from_slice(&cleaned_data);
             let _ = writer.write_all(b"\n");
             let _ = writer.write_all(&combined);
             let _ = writer.flush();
@@ -697,6 +714,33 @@ impl PortData {
     /// Clears the UTF-8 buffer.
     pub fn clear_utf8_buffer(&mut self) {
         self.utf8_buffer.clear();
+    }
+
+    /// Gets a mutable reference to the timestamp enabled flag.
+    pub const fn timestamp_enabled(&mut self) -> &mut bool {
+        &mut self.timestamp_enabled
+    }
+
+    /// Gets a mutable reference to the log timeout.
+    pub const fn log_timeout(&mut self) -> &mut Duration {
+        &mut self.log_timeout
+    }
+
+    /// Updates the last receive time and checks if timeout line break is needed.
+    pub fn update_receive_time(&mut self) -> bool {
+        let now = Instant::now();
+        let should_break = if let Some(last_time) = self.last_receive_time {
+            self.log_timeout.as_millis() > 0 && now.duration_since(last_time) >= self.log_timeout
+        } else {
+            false
+        };
+        self.last_receive_time = Some(now);
+        should_break
+    }
+
+    /// Resets the receive time (called when port is opened).
+    pub fn reset_receive_time(&mut self) {
+        self.last_receive_time = None;
     }
 }
 

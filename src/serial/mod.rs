@@ -454,6 +454,7 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
                     PortState::Ready | PortState::Close => {
                         if state == PortState::Ready {
                             serial.open();
+                            serial.data().reset_receive_time();
                         } else {
                             serial.close();
                             serial.data().clear_utf8_buffer();
@@ -473,6 +474,14 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
                         // For other data types, use raw data directly
                         data.data.clone()
                     };
+                    
+                    // Check if timeout line break is needed
+                    let should_break = serial.data().update_receive_time();
+                    if should_break {
+                        serial
+                            .data()
+                            .write_source_file(b"\n", DataSource::Read);
+                    }
                     
                     let decoded = decode_bytes(&processed_data, *serial.data().data_type());
                     serial
