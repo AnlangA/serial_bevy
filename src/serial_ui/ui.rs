@@ -149,19 +149,16 @@ pub fn draw_timeout_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Seri
     ui.horizontal(|ui| {
         ui.label("Timeout  ");
         
-        // Convert timeout from Duration to milliseconds for display
-        let timeout_ms = serial.set.timeout.as_millis() as u64;
-        let mut temp_timeout_ms = timeout_ms;
-        
-        // Common timeout values in milliseconds
-        let timeout_options = [1, 5, 10, 50, 100, 500, 1000, 2000, 5000];
+        // Convert timeout from Duration to milliseconds for display (capped at u64::MAX)
+        let timeout_ms = serial.set.timeout.as_millis().min(u64::MAX as u128) as u64;
         
         egui::ComboBox::from_id_salt(format!("{}_timeout", serial.set.port_name))
             .width(60f32)
-            .selected_text(format!("{} ms", timeout_ms))
+            .selected_text(format!("{timeout_ms} ms"))
             .show_ui(ui, |ui| {
-                for &timeout_opt in &timeout_options {
-                    if ui.selectable_value(&mut temp_timeout_ms, timeout_opt, format!("{timeout_opt} ms"))
+                // Common timeout values in milliseconds
+                for &timeout_opt in &[1, 5, 10, 50, 100, 500, 1000, 2000, 5000] {
+                    if ui.selectable_label(timeout_ms == timeout_opt, format!("{timeout_opt} ms"))
                         .clicked()
                     {
                         *serial.set.timeout() = std::time::Duration::from_millis(timeout_opt);
