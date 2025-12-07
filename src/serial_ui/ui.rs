@@ -150,7 +150,7 @@ pub fn draw_timeout_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Seri
         ui.label("Timeout  ");
         
         // Convert timeout from Duration to milliseconds for display (capped at u64::MAX)
-        let timeout_ms = serial.set.timeout.as_millis().min(u64::MAX as u128) as u64;
+        let timeout_ms = serial.set.timeout.as_millis().min(u64::MAX.into()) as u64;
         
         egui::ComboBox::from_id_salt(format!("{}_timeout", serial.set.port_name))
             .width(60f32)
