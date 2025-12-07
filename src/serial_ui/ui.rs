@@ -144,6 +144,33 @@ pub fn draw_parity_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Seria
     });
 }
 
+/// Draws the timeout selector.
+pub fn draw_timeout_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    ui.horizontal(|ui| {
+        ui.label("Timeout  ");
+        
+        // Convert timeout from Duration to milliseconds for display
+        let timeout_ms = serial.set.timeout.as_millis() as u64;
+        let mut temp_timeout_ms = timeout_ms;
+        
+        // Common timeout values in milliseconds
+        let timeout_options = [1, 5, 10, 50, 100, 500, 1000, 2000, 5000];
+        
+        egui::ComboBox::from_id_salt(format!("{}_timeout", serial.set.port_name))
+            .width(60f32)
+            .selected_text(format!("{} ms", timeout_ms))
+            .show_ui(ui, |ui| {
+                for &timeout_opt in &timeout_options {
+                    if ui.selectable_value(&mut temp_timeout_ms, timeout_opt, format!("{timeout_opt} ms"))
+                        .clicked()
+                    {
+                        *serial.set.timeout() = std::time::Duration::from_millis(timeout_opt);
+                    }
+                }
+            });
+    });
+}
+
 /// Draws the open/close port button.
 pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, selected: &mut Selected) {
     if serial.is_close() {
