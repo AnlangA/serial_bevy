@@ -25,7 +25,7 @@ use ui::{
     Selected, data_line_feed_ui, data_type_ui, draw_baud_rate_selector, draw_data_bits_selector,
     draw_flow_control_selector, draw_parity_selector, draw_select_serial_ui,
     draw_serial_context_label_ui, draw_serial_context_ui, draw_serial_setting_ui,
-    draw_stop_bits_selector, llm_ui,
+    draw_stop_bits_selector, draw_timeout_selector, llm_ui,
 };
 
 /// Panel width persistence file name.
@@ -160,6 +160,7 @@ fn serial_ui(
                         continue;
                     };
                     if selected.is_selected(&serial.set.port_name) {
+                        draw_timeout_selector(ui, &mut serial);
                         draw_flow_control_selector(ui, &mut serial);
                         draw_parity_selector(ui, &mut serial);
                         draw_stop_bits_selector(ui, &mut serial);

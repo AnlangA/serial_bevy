@@ -159,7 +159,7 @@ impl Default for PortSettings {
             stop_bits: StopBits::One,
             parity: Parity::None,
             flow_control: FlowControl::None,
-            timeout: Duration::from_micros(500),
+            timeout: Duration::from_millis(100),
         }
     }
 }
@@ -1020,6 +1020,7 @@ mod tests {
         assert_eq!(settings.data_bits, DataBits::Eight);
         assert_eq!(settings.stop_bits, StopBits::One);
         assert_eq!(settings.parity, Parity::None);
+        assert_eq!(settings.timeout, Duration::from_millis(100));
     }
 
     #[test]
@@ -1096,5 +1097,21 @@ mod tests {
 
         state.set_state(LlmState::Error);
         assert!(state.is_error());
+    }
+
+    #[test]
+    fn test_timeout_setting() {
+        let mut settings = PortSettings::default();
+        assert_eq!(settings.timeout, Duration::from_millis(100));
+        
+        // Test setting different timeout values
+        *settings.timeout() = Duration::from_millis(500);
+        assert_eq!(settings.timeout, Duration::from_millis(500));
+        
+        *settings.timeout() = Duration::from_millis(1000);
+        assert_eq!(settings.timeout, Duration::from_millis(1000));
+        
+        // Test that timeout as_millis works correctly
+        assert_eq!(settings.timeout.as_millis(), 1000);
     }
 }
