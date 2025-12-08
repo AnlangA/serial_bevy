@@ -238,7 +238,7 @@ fn serial_ui(
                             data_line_feed_ui(ui, &mut serial);
                             llm_ui(ui, &mut serial);
                         });
-                        
+
                         // Text input area
                         let available_height = ui.available_height() - 30.0; // Leave space for margins
                         let font = egui::FontId::new(18.0, egui::FontFamily::Monospace);

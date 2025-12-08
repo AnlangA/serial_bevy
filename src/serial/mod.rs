@@ -473,7 +473,7 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
                         // For other data types, use raw data directly
                         data.data.clone()
                     };
-                    
+
                     let decoded = decode_bytes(&processed_data, *serial.data().data_type());
                     serial
                         .data()
