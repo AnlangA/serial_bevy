@@ -21,11 +21,52 @@ use crate::serial::Serials;
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
+use egui_sgr;
+
+/// Converts bytes to string, skipping control characters but preserving ANSI sequences.
+/// The ANSI sequences will be processed by egui_sgr later.
+fn bytes_to_str_with_ansi(data: &[u8]) -> String {
+    let mut result = String::with_capacity(data.len());
+    let mut i = 0;
+    while i < data.len() {
+        let b = data[i];
+        // Skip NULL and CR (carriage return)
+        // CR is normalized to LF in process_raw_bytes, but we skip it here as a safety measure
+        if b == 0x00 || b == 0x0D {
+            i += 1;
+            continue;
+        }
+        // Valid single byte ASCII (including ESC for ANSI sequences)
+        if b < 0x80 {
+            result.push(b as char);
+            i += 1;
+            continue;
+        }
+        // Multi-byte UTF-8
+        let len = if b & 0xE0 == 0xC0 {
+            2
+        } else if b & 0xF0 == 0xE0 {
+            3
+        } else if b & 0xF8 == 0xF0 {
+            4
+        } else {
+            i += 1;
+            continue;
+        };
+        if i + len <= data.len()
+            && let Ok(s) = std::str::from_utf8(&data[i..i + len])
+        {
+            result.push_str(s);
+        }
+        i += len;
+    }
+    result
+}
 use ui::{
-    Selected, data_line_feed_ui, data_type_ui, draw_baud_rate_selector, draw_data_bits_selector,
-    draw_flow_control_selector, draw_parity_selector, draw_select_serial_ui,
-    draw_serial_context_label_ui, draw_serial_context_ui, draw_serial_setting_ui,
-    draw_stop_bits_selector, draw_timeout_selector, llm_ui,
+    Selected, console_mode_ui, data_line_feed_ui, data_type_ui, draw_baud_rate_selector,
+    draw_data_bits_selector, draw_flow_control_selector, draw_parity_selector,
+    draw_select_serial_ui, draw_serial_context_label_ui, draw_serial_context_ui,
+    draw_serial_setting_ui, draw_stop_bits_selector, draw_timeout_selector, llm_ui, timestamp_ui,
 };
 
 /// Panel width persistence file name.
@@ -198,7 +239,7 @@ fn serial_ui(
                 continue;
             };
             if selected.is_selected(&serial.set.port_name) {
-                let data = serial.data().read_current_source_file();
+                let data = serial.data().read_current_source_file_bytes();
                 egui::ScrollArea::vertical()
                     .stick_to_bottom(true)
                     .auto_shrink([false, false])
@@ -213,7 +254,72 @@ fn serial_ui(
                                 .color(egui::Color32::GRAY),
                             );
                         } else {
-                            ui.monospace(egui::RichText::new(data));
+                            let text = bytes_to_str_with_ansi(&data);
+                            
+                            // Use AnsiParser to get colored segments with color info
+                            let mut parser = egui_sgr::AnsiParser::new();
+                            let colored_segments = parser.parse(&text);
+                            
+                            // Strategy: Track current line content and flush when we see newline
+                            let mut current_line: Vec<(String, Option<egui::Color32>, Option<egui::Color32>)> = Vec::new();
+                            
+                            for seg in &colored_segments {
+                                let seg_text = &seg.text;
+                                let fg = seg.foreground_color;
+                                let bg = seg.background_color;
+                                
+                                let mut chars = seg_text.chars().peekable();
+                                let mut current_part = String::new();
+                                
+                                while let Some(ch) = chars.next() {
+                                    if ch == '\n' {
+                                        // Flush current part to line
+                                        if !current_part.is_empty() {
+                                            current_line.push((current_part.clone(), fg, bg));
+                                            current_part.clear();
+                                        }
+                                        // Flush the line
+                                        if !current_line.is_empty() {
+                                            ui.horizontal(|ui| {
+                                                for (text, fg, bg) in &current_line {
+                                                    let mut rt = egui::RichText::new(text).monospace();
+                                                    if let Some(color) = fg {
+                                                        rt = rt.color(*color);
+                                                    }
+                                                    if let Some(color) = bg {
+                                                        rt = rt.background_color(*color);
+                                                    }
+                                                    ui.label(rt);
+                                                }
+                                            });
+                                            current_line.clear();
+                                        }
+                                    } else {
+                                        current_part.push(ch);
+                                    }
+                                }
+                                
+                                // Add remaining part to current line
+                                if !current_part.is_empty() {
+                                    current_line.push((current_part, fg, bg));
+                                }
+                            }
+                            
+                            // Flush any remaining content (last line without newline)
+                            if !current_line.is_empty() {
+                                ui.horizontal(|ui| {
+                                    for (text, fg, bg) in &current_line {
+                                        let mut rt = egui::RichText::new(text).monospace();
+                                        if let Some(color) = fg {
+                                            rt = rt.color(*color);
+                                        }
+                                        if let Some(color) = bg {
+                                            rt = rt.background_color(*color);
+                                        }
+                                        ui.label(rt);
+                                    }
+                                });
+                            }
                         }
                     });
             }
@@ -236,6 +342,8 @@ fn serial_ui(
                         ui.horizontal(|ui| {
                             data_type_ui(ui, &mut serial);
                             data_line_feed_ui(ui, &mut serial);
+                            timestamp_ui(ui, &mut serial);
+                            console_mode_ui(ui, &mut serial);
                             llm_ui(ui, &mut serial);
                         });
 

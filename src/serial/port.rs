@@ -5,7 +5,7 @@
 use log::{error, info};
 use std::fmt;
 use std::fs::OpenOptions;
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufWriter, Read, Write};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
@@ -368,6 +368,13 @@ pub struct PortData {
     line_feed: bool,
     /// Buffer for incomplete UTF-8 sequences.
     utf8_buffer: Vec<u8>,
+    /// Console mode flag - provides better terminal experience for Linux serial consoles.
+    /// When enabled: no timestamps, local echo, line-buffered sending.
+    console_mode: bool,
+    /// Show timestamp in log file and display.
+    /// When false (default): raw data format without timestamps.
+    /// When true: adds [timestamp source] prefix to each line.
+    show_timestamp: bool,
 }
 
 impl Default for PortData {
@@ -389,6 +396,8 @@ impl PortData {
             data_type: DataType::Utf8,
             line_feed: false,
             utf8_buffer: Vec::new(),
+            console_mode: false,
+            show_timestamp: false,
         }
     }
 
@@ -431,42 +440,46 @@ impl PortData {
         self.source_file.file.len()
     }
 
-    /// Writes data to the last source file with timestamp.
+    /// Writes data to the last source file.
+    /// Format depends on show_timestamp setting:
+    /// - If show_timestamp is true: writes with [timestamp source] prefix
+    /// - If show_timestamp is false: writes raw data without prefix
     pub fn write_source_file(&mut self, data: &[u8], source: DataSource) {
         let Some(file_path) = self.source_file.file.last() else {
             return;
         };
 
-        let time = chrono::Local::now()
-            .format("%Y%m%d %H:%M:%S.%3f")
-            .to_string();
-        let head = format!("[{time} {source}]");
-
         if let Ok(file) = OpenOptions::new().append(true).open(file_path) {
             let mut writer = BufWriter::new(file);
-            let mut combined = Vec::new();
-            combined.extend_from_slice(head.as_bytes());
-            combined.extend_from_slice(data);
-            let _ = writer.write_all(b"\n");
-            let _ = writer.write_all(&combined);
-            let _ = writer.flush();
+
+            if self.show_timestamp {
+                // Timestamped mode: write with timestamp prefix
+                let time = chrono::Local::now()
+                    .format("%Y%m%d %H:%M:%S.%3f")
+                    .to_string();
+                let head = format!("[{time} {source}]");
+
+                let mut combined = Vec::new();
+                combined.extend_from_slice(head.as_bytes());
+                combined.extend_from_slice(data);
+                let _ = writer.write_all(b"\n");
+                let _ = writer.write_all(&combined);
+                let _ = writer.flush();
+            } else {
+                // Raw mode: write raw data without timestamp
+                let _ = writer.write_all(data);
+                let _ = writer.flush();
+            }
         }
     }
 
-    /// Reads the current source file contents.
+    /// Reads the current source file contents as raw bytes.
     #[must_use]
-    pub fn read_current_source_file(&mut self) -> String {
+    pub fn read_current_source_file_bytes(&mut self) -> Vec<u8> {
         self.source_file
             .file
             .last()
-            .and_then(|path| {
-                OpenOptions::new().read(true).open(path).ok().map(|file| {
-                    let mut data = String::new();
-                    let mut reader = BufReader::new(file);
-                    let _ = reader.read_to_string(&mut data);
-                    data
-                })
-            })
+            .map(|path| std::fs::read(path).unwrap_or_default())
             .unwrap_or_default()
     }
 
@@ -597,7 +610,30 @@ impl PortData {
         &mut self.line_feed
     }
 
+    /// Gets a mutable reference to the console mode setting.
+    pub const fn console_mode(&mut self) -> &mut bool {
+        &mut self.console_mode
+    }
+
+    /// Returns true if console mode is enabled.
+    #[must_use]
+    pub const fn is_console_mode(&self) -> bool {
+        self.console_mode
+    }
+
+    /// Gets a mutable reference to the show timestamp setting.
+    pub const fn show_timestamp(&mut self) -> &mut bool {
+        &mut self.show_timestamp
+    }
+
+    /// Returns true if timestamps should be shown.
+    #[must_use]
+    pub const fn is_show_timestamp(&self) -> bool {
+        self.show_timestamp
+    }
+
     /// Processes raw bytes with UTF-8 buffer handling.
+    /// Also normalizes line endings: converts \r\n to \n and removes standalone \r
     pub fn process_raw_bytes(&mut self, data: &[u8]) -> Vec<u8> {
         // Add new data to buffer
         self.utf8_buffer.extend_from_slice(data);
@@ -613,7 +649,10 @@ impl PortData {
             self.utf8_buffer.clear();
         }
 
-        valid_str.as_bytes().to_vec()
+        // Normalize line endings: \r\n -> \n, standalone \r -> \n
+        let normalized = valid_str.replace("\r\n", "\n").replace('\r', "\n");
+
+        normalized.into_bytes()
     }
 
     /// Extracts valid UTF-8 from buffer, returns (valid_string, incomplete_bytes_count)

@@ -420,9 +420,14 @@ fn send_serial_data(mut serials: Query<&mut Serials>) {
             data_vec_u8.extend(data_u8);
         }
 
-        serial
-            .data()
-            .write_source_file(file_data.as_bytes(), DataSource::Write);
+        // Write sent data to log file
+        // In console mode: skip local echo (terminal will echo back)
+        // In normal mode: write with Write source indicator
+        if !serial.data().is_console_mode() {
+            serial
+                .data()
+                .write_source_file(file_data.as_bytes(), DataSource::Write);
+        }
 
         if serial.is_open()
             && let Some(tx) = serial.tx_channel()
@@ -467,24 +472,20 @@ fn receive_serial_data(mut serials: Query<&mut Serials>) {
                 },
                 PortChannelData::PortRead(data) => {
                     let processed_data = if *serial.data().data_type() == DataType::Utf8 {
-                        // Use UTF-8 buffer processing for UTF-8 data
                         serial.data().process_raw_bytes(&data.data)
                     } else {
-                        // For other data types, use raw data directly
                         data.data.clone()
                     };
 
-                    let decoded = decode_bytes(&processed_data, *serial.data().data_type());
                     serial
                         .data()
-                        .write_source_file(decoded.as_bytes(), DataSource::Read);
+                        .write_source_file(&processed_data, DataSource::Read);
                 }
                 PortChannelData::PortError(data) => {
-                    let decoded = decode_bytes(&data.data, *serial.data().data_type());
                     serial.error();
                     serial
                         .data()
-                        .write_source_file(decoded.as_bytes(), DataSource::Error);
+                        .write_source_file(&data.data, DataSource::Error);
                 }
                 _ => {}
             }

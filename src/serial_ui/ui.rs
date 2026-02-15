@@ -313,6 +313,47 @@ pub fn llm_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     });
 }
 
+/// Draws the console mode toggle button.
+/// Console mode provides better terminal experience for Linux serial consoles:
+/// - No local echo (terminal handles echo)
+/// - Raw data logging (no timestamps)
+pub fn console_mode_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    ui.horizontal(|ui| {
+        let console_mode = *serial.data().console_mode();
+        let (button_text, hover_text) = if console_mode {
+            ("Console ON", "Console mode enabled. Terminal handles echo. Toggle to disable.")
+        } else {
+            ("Console OFF", "Enable console mode for Linux serial terminal experience (no local echo, raw data)")
+        };
+
+        let button = ui.button(button_text).on_hover_text(hover_text);
+        if button.clicked() {
+            *serial.data().console_mode() = !console_mode;
+            // Clear UTF-8 buffer when switching modes to avoid display issues
+            serial.data().clear_utf8_buffer();
+        }
+    });
+}
+
+/// Draws the timestamp display toggle button.
+/// When enabled, shows timestamps and send/receive indicators in the log.
+/// When disabled (default), shows raw data for cleaner display.
+pub fn timestamp_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    ui.horizontal(|ui| {
+        let show_timestamp = *serial.data().show_timestamp();
+        let (button_text, hover_text) = if show_timestamp {
+            ("Time ON", "Timestamps enabled. Toggle to hide timestamps and source indicators.")
+        } else {
+            ("Time OFF", "Enable timestamps and send/receive indicators")
+        };
+
+        let button = ui.button(button_text).on_hover_text(hover_text);
+        if button.clicked() {
+            *serial.data().show_timestamp() = !show_timestamp;
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
