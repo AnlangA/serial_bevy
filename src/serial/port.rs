@@ -857,7 +857,7 @@ impl DataType {
 
 /// Data for port read/write operations.
 #[derive(Clone, Debug)]
-pub struct PorRWData {
+pub struct PortRwData {
     /// The raw data bytes.
     pub data: Vec<u8>,
 }
@@ -868,9 +868,9 @@ pub enum PortChannelData {
     /// Available port names.
     PortName(Vec<String>),
     /// Data to write to the port.
-    PortWrite(PorRWData),
+    PortWrite(PortRwData),
     /// Data read from the port.
-    PortRead(PorRWData),
+    PortRead(PortRwData),
     /// Request to open the port.
     PortOpen,
     /// Request to close the port.
@@ -878,7 +878,7 @@ pub enum PortChannelData {
     /// Port state change.
     PortState(PortState),
     /// Port error occurred.
-    PortError(PorRWData),
+    PortError(PortRwData),
 }
 
 impl From<PortChannelData> for Vec<String> {

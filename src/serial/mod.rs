@@ -306,7 +306,7 @@ async fn wait_for_port_open(
             return match open_port(&port_settings).await {
                 Ok(port) => Ok(port),
                 Err(e) => {
-                    let _ = tx1.send(PortChannelData::PortError(PorRWData {
+                    let _ = tx1.send(PortChannelData::PortError(PortRwData {
                         data: b"open port failed".to_vec(),
                     }));
                     Err(e)
@@ -345,7 +345,7 @@ fn spawn_read_thread(
                 result = read.read(&mut buffer) => {
                     match result {
                         Ok(n) if n > 0 => {
-                            let data = PorRWData {
+                            let data = PortRwData {
                                 data: buffer[..n].to_vec(),
                             };
                             if let Err(e) = tx1_read.send(PortChannelData::PortRead(data.clone())) {
@@ -431,7 +431,7 @@ fn send_serial_data(mut serials: Query<&mut Serials>) {
 
         if serial.is_open()
             && let Some(tx) = serial.tx_channel()
-            && let Err(e) = tx.send(PortChannelData::PortWrite(PorRWData { data: data_vec_u8 }))
+            && let Err(e) = tx.send(PortChannelData::PortWrite(PortRwData { data: data_vec_u8 }))
         {
             error!("Failed to send data: {e}");
         }

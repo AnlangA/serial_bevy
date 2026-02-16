@@ -2,11 +2,11 @@
 //!
 //! This module provides individual UI components for serial port configuration and control.
 
+use crate::serial::port::{DataType, PortChannelData, Serial, COMMON_BAUD_RATES};
 use crate::serial::Serials;
-use crate::serial::port::{COMMON_BAUD_RATES, DataType, PortChannelData, Serial};
 use bevy::prelude::*;
-use bevy_egui::{EguiContexts, egui};
-use log::{error, info};
+use bevy_egui::{egui, EguiContexts};
+use log::info;
 use std::sync::MutexGuard;
 use tokio_serial::{DataBits, FlowControl, Parity, StopBits};
 
@@ -180,16 +180,12 @@ pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, selected:
                     Ok(_) => {
                         info!("Sent open port message");
                     }
-                    Err(e) => error!("Failed to open port: {e}"),
+                    Err(e) => info!("Failed to open port: {e}"),
                 }
-                // Create logs directory (ignore errors, will surface on file open if critical)
                 let _ = std::fs::create_dir_all("logs");
-                // High-resolution timestamp (nanoseconds) for unique log file names
                 let time = chrono::Local::now().format("%Y%m%d_%H%M%S_%f").to_string();
-                // Sanitize port name: remove leading '/', replace remaining '/' with '_'
                 let port_name = &serial.set.port_name;
                 let safe_port = port_name.trim_start_matches('/').replace('/', "_");
-                // Construct relative log file path inside ./logs
                 let file_name = format!("logs/{}_{}.txt", safe_port, time);
                 serial.data().add_source_file(file_name);
             }
@@ -204,7 +200,7 @@ pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, selected:
                 Ok(_) => {
                     info!("Sent close port message");
                 }
-                Err(e) => error!("Failed to close port: {e}"),
+                Err(e) => info!("Failed to close port: {e}"),
             }
         }
     }
@@ -329,7 +325,6 @@ pub fn console_mode_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
         let button = ui.button(button_text).on_hover_text(hover_text);
         if button.clicked() {
             *serial.data().console_mode() = !console_mode;
-            // Clear UTF-8 buffer when switching modes to avoid display issues
             serial.data().clear_utf8_buffer();
         }
     });
@@ -342,7 +337,10 @@ pub fn timestamp_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     ui.horizontal(|ui| {
         let show_timestamp = *serial.data().show_timestamp();
         let (button_text, hover_text) = if show_timestamp {
-            ("Time ON", "Timestamps enabled. Toggle to hide timestamps and source indicators.")
+            (
+                "Time ON",
+                "Timestamps enabled. Toggle to hide timestamps and source indicators.",
+            )
         } else {
             ("Time OFF", "Enable timestamps and send/receive indicators")
         };

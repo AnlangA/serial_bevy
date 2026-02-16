@@ -27,6 +27,7 @@ hex = "0.4"
 chrono = "0.4"
 regex = "1.12"
 thiserror = "1.0"
+encoding_rs = "0.8"
 
 # ANSI color parsing for egui
 egui_sgr = "0.1"

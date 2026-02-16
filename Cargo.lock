@@ -5348,6 +5348,7 @@ dependencies = [
  "bevy_egui",
  "chrono",
  "egui_sgr",
+ "encoding_rs",
  "env_logger",
  "hex",
  "log",

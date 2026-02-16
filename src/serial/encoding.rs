@@ -36,9 +36,11 @@ pub fn encode_string(source_data: &str, data_type: DataType) -> Vec<u8> {
     match data_type {
         DataType::Hex => encode_hex(source_data),
         DataType::Utf8 => source_data.as_bytes().to_vec(),
-        _ => {
-            // TODO: Support more encoding types
-            Vec::new()
+        DataType::Ascii => source_data.as_bytes().to_vec(),
+        DataType::Binary => source_data.as_bytes().to_vec(),
+        DataType::Utf16 | DataType::Utf32 | DataType::Gbk => {
+            let encoded = encoding_rs::GBK.encode(source_data);
+            encoded.0.into_owned()
         }
     }
 }
@@ -71,7 +73,36 @@ pub fn decode_bytes(source_data: &[u8], data_type: DataType) -> String {
     match data_type {
         DataType::Hex => hex::encode(source_data),
         DataType::Utf8 => String::from_utf8_lossy(source_data).replace('�', "❓"),
-        _ => String::new(),
+        DataType::Ascii => String::from_utf8_lossy(source_data).replace('�', "❓"),
+        DataType::Binary => source_data
+            .iter()
+            .map(|b| format!("{:08b}", b))
+            .collect::<Vec<_>>()
+            .join(" "),
+        DataType::Utf16 => {
+            let (decoded, _, _) = encoding_rs::UTF_16LE.decode(source_data);
+            decoded.into_owned()
+        }
+        DataType::Utf32 => {
+            let codepoints: Vec<u32> = source_data
+                .chunks(4)
+                .filter_map(|chunk| {
+                    if chunk.len() == 4 {
+                        Some(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            codepoints
+                .iter()
+                .map(|&cp| char::from_u32(cp).unwrap_or('�'))
+                .collect()
+        }
+        DataType::Gbk => {
+            let (decoded, _, _) = encoding_rs::GBK.decode(source_data);
+            decoded.into_owned()
+        }
     }
 }
 
@@ -150,14 +181,14 @@ mod tests {
     }
 
     #[test]
-    fn test_encode_unsupported_type() {
+    fn test_encode_binary() {
         let result = encode_string("test", DataType::Binary);
-        assert!(result.is_empty());
+        assert_eq!(result, b"test");
     }
 
     #[test]
-    fn test_decode_unsupported_type() {
+    fn test_decode_binary() {
         let result = decode_bytes(&[1, 2, 3], DataType::Binary);
-        assert!(result.is_empty());
+        assert!(!result.is_empty());
     }
 }
