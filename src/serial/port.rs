@@ -871,8 +871,8 @@ pub enum PortChannelData {
     PortWrite(PortRwData),
     /// Data read from the port.
     PortRead(PortRwData),
-    /// Request to open the port.
-    PortOpen,
+    /// Request to open the port with current settings.
+    PortOpen(PortSettings),
     /// Request to close the port.
     PortClose(String),
     /// Port state change.
@@ -1112,7 +1112,7 @@ mod tests {
         let names: Vec<String> = data.into();
         assert_eq!(names.len(), 2);
 
-        let data = PortChannelData::PortOpen;
+        let data = PortChannelData::PortOpen(PortSettings::default());
         let names: Vec<String> = data.into();
         assert!(names.is_empty());
     }

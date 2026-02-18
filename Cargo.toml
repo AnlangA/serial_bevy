@@ -13,6 +13,7 @@ categories = ["gui", "hardware-support"]
 # Bevy game engine and UI
 bevy = { version = "0.18"}
 bevy_egui = "0.39"
+egui = { version = "0.33", features = ["persistence"] }
 
 # Async runtime and serial communication
 tokio = { version = "1.48", features = ["full"] }
@@ -28,6 +29,10 @@ chrono = "0.4"
 regex = "1.12"
 thiserror = "1.0"
 encoding_rs = "0.8"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+ron = "0.8"
 
 # ANSI color parsing for egui
 egui_sgr = "0.1"

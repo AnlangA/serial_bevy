@@ -2,10 +2,10 @@
 //!
 //! This module provides individual UI components for serial port configuration and control.
 
-use crate::serial::port::{DataType, PortChannelData, Serial, COMMON_BAUD_RATES};
 use crate::serial::Serials;
+use crate::serial::port::{COMMON_BAUD_RATES, DataType, PortChannelData, Serial};
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{EguiContexts, egui};
 use log::info;
 use std::sync::MutexGuard;
 use tokio_serial::{DataBits, FlowControl, Parity, StopBits};
@@ -175,8 +175,11 @@ pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, selected:
         if ui.button("Open").clicked() {
             selected.select(&serial.set.port_name);
             info!("Opening port {}", serial.set.port_name);
+
+            // Clone settings before borrowing tx_channel to avoid borrow conflict
+            let settings = serial.set.clone();
             if let Some(tx) = serial.tx_channel() {
-                match tx.send(PortChannelData::PortOpen) {
+                match tx.send(PortChannelData::PortOpen(settings)) {
                     Ok(_) => {
                         info!("Sent open port message");
                     }

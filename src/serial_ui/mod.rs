@@ -6,14 +6,10 @@
 //! - Central `egui::CentralPanel`: data receive window + input/editor
 //! - Right `egui::SidePanel` (conditional): LLM related info when enabled
 //!
-//! This version restores side panels (not floating windows) and introduces:
-//! 1. Resizable side panels (`resizable(true)`).
-//! 2. Persistence of panel widths across runs (simple text file `panel_widths.txt`).
-//!
-//! File persistence is deliberately minimal (no extra crates).
-//! Format of `panel_widths.txt`: `<left_width> <right_width>`
-//!
-//! If the file is missing or invalid, defaults are used. Widths are saved on application exit.
+//! This version uses egui's built-in memory persistence for configuration storage:
+//! - Panel widths are stored in `egui::Memory::data` using `insert_persisted`/`get_persisted`
+//! - Configuration is automatically serialized to `config/app_memory.ron` on app exit
+//! - Configuration is loaded from the same file on startup
 
 pub mod ui;
 
@@ -22,6 +18,7 @@ use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use egui_sgr;
+use serde::{Deserialize, Serialize};
 
 /// Converts bytes to string, skipping control characters but preserving ANSI sequences.
 /// The ANSI sequences will be processed by egui_sgr later.
@@ -69,11 +66,15 @@ use ui::{
     draw_serial_setting_ui, draw_stop_bits_selector, draw_timeout_selector, llm_ui, timestamp_ui,
 };
 
-/// Panel width persistence file name.
-const PANEL_WIDTHS_FILE: &str = "panel_widths.txt";
+/// Configuration file path for egui memory persistence.
+const CONFIG_FILE: &str = "config/app_memory.ron";
+
+/// Unique ID for storing panel widths in egui memory.
+const PANEL_WIDTHS_ID: &str = "panel_widths";
 
 /// Resource storing current (and persisted) side panel widths.
-#[derive(Resource, Clone)]
+/// Uses serde for serialization with egui's persistence system.
+#[derive(Resource, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PanelWidths {
     /// Current (user-adjustable) width of the left side panel.
     pub left_width: f32,
@@ -90,40 +91,117 @@ impl Default for PanelWidths {
     }
 }
 
-/// Attempt to load panel widths from disk; fall back to defaults if parsing fails.
-fn load_panel_widths_from_disk() -> PanelWidths {
-    if let Ok(raw) = std::fs::read_to_string(PANEL_WIDTHS_FILE) {
-        let parts: Vec<_> = raw.split_whitespace().collect();
-        if parts.len() == 2
-            && let (Ok(lw), Ok(rw)) = (parts[0].parse::<f32>(), parts[1].parse::<f32>())
-        {
-            return PanelWidths {
-                left_width: lw.clamp(120.0, 600.0),
-                right_width: rw.clamp(160.0, 800.0),
-            };
+impl PanelWidths {
+    /// Clamp widths to valid ranges.
+    fn clamp(&mut self) {
+        self.left_width = self.left_width.clamp(120.0, 600.0);
+        self.right_width = self.right_width.clamp(160.0, 800.0);
+    }
+}
+
+/// System: initialize panel widths resource with defaults.
+/// The actual loading from egui memory happens in the first UI frame.
+fn init_panel_widths(mut commands: Commands) {
+    commands.insert_resource(PanelWidths::default());
+}
+
+/// Load configuration from disk file into egui memory on startup.
+fn load_config_from_disk(ctx: &egui::Context) {
+    // Ensure config directory exists
+    if let Err(e) = std::fs::create_dir_all("config") {
+        eprintln!("[serial_ui] Failed to create config directory: {e}");
+        return;
+    }
+
+    // Try to load and deserialize the memory file
+    if let Ok(data) = std::fs::read_to_string(CONFIG_FILE) {
+        match ron::from_str::<PanelWidths>(&data) {
+            Ok(widths) => {
+                let mut widths = widths;
+                widths.clamp();
+                ctx.memory_mut(|mem| {
+                    mem.data.insert_persisted(egui::Id::new(PANEL_WIDTHS_ID), widths);
+                });
+                log::info!("[serial_ui] Loaded panel widths from config file");
+            }
+            Err(e) => {
+                log::warn!("[serial_ui] Failed to parse config file: {e}, using defaults");
+            }
         }
     }
-    PanelWidths::default()
 }
 
-/// Persist panel widths (best-effort).
-fn save_panel_widths_to_disk(widths: &PanelWidths) {
-    let data = format!("{} {}", widths.left_width, widths.right_width);
-    if let Err(e) = std::fs::write(PANEL_WIDTHS_FILE, data) {
-        eprintln!("[serial_ui] Failed to write panel widths: {e}");
+/// Save configuration from egui memory to disk file on exit.
+fn save_config_to_disk(ctx: &egui::Context) {
+    log::info!("[serial_ui] Saving configuration to disk...");
+    let widths = ctx.memory_mut(|mem| {
+        mem.data.get_persisted::<PanelWidths>(egui::Id::new(PANEL_WIDTHS_ID))
+            .unwrap_or_default()
+    });
+    
+    log::info!("[serial_ui] Panel widths to save: left={}, right={}", widths.left_width, widths.right_width);
+
+    // Ensure config directory exists
+    if let Err(e) = std::fs::create_dir_all("config") {
+        eprintln!("[serial_ui] Failed to create config directory: {e}");
+        return;
+    }
+
+    match ron::to_string(&widths) {
+        Ok(data) => {
+            if let Err(e) = std::fs::write(CONFIG_FILE, data) {
+                eprintln!("[serial_ui] Failed to write config file: {e}");
+            } else {
+                log::info!("[serial_ui] Saved panel widths to config file");
+            }
+        }
+        Err(e) => {
+            eprintln!("[serial_ui] Failed to serialize config: {e}");
+        }
     }
 }
 
-/// System: load panel widths at startup.
-fn load_panel_widths(mut commands: Commands) {
-    commands.insert_resource(load_panel_widths_from_disk());
-}
-
-/// System: save panel widths when app is exiting.
-fn save_panel_widths_on_exit(panel_widths: Res<PanelWidths>, exit_events: MessageReader<AppExit>) {
+/// System: save configuration when app is exiting.
+/// Uses Last schedule to ensure it runs even during app shutdown.
+fn save_config_on_exit(
+    mut contexts: EguiContexts,
+    mut exit_events: MessageReader<AppExit>,
+) {
     if !exit_events.is_empty() {
-        save_panel_widths_to_disk(&panel_widths);
+        exit_events.clear();
+        log::info!("[serial_ui] App exit detected, saving configuration...");
+        if let Ok(ctx) = contexts.ctx_mut() {
+            save_config_to_disk(&ctx);
+        } else {
+            log::warn!("[serial_ui] Could not get egui context to save config");
+        }
     }
+}
+
+/// System: load config from disk on first frame and sync to resource.
+/// Uses a local state to track if config has been loaded.
+fn load_config_and_sync(
+    mut contexts: EguiContexts,
+    mut panel_widths: ResMut<PanelWidths>,
+    mut loaded: Local<bool>,
+) {
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+
+    // Load from disk only once
+    if !*loaded {
+        load_config_from_disk(&ctx);
+        *loaded = true;
+    }
+
+    // Sync resource from egui memory
+    let widths = ctx.memory_mut(|mem| {
+        mem.data.get_persisted::<PanelWidths>(egui::Id::new(PANEL_WIDTHS_ID))
+            .unwrap_or_default()
+    });
+
+    *panel_widths = widths;
 }
 
 /// Plugin for the serial UI.
@@ -140,11 +218,12 @@ impl Plugin for SerialUiPlugin {
             .insert_resource(ClearColor(Color::srgb(0.96875, 0.96875, 0.96875)))
             .insert_resource(Selected::default())
             .add_systems(Startup, setup_camera_system)
-            .add_systems(Startup, load_panel_widths)
-            .add_systems(PostUpdate, save_panel_widths_on_exit)
+            .add_systems(Startup, init_panel_widths)
+            .add_systems(Last, save_config_on_exit)  // Use Last schedule for exit handling
             .add_systems(
                 EguiPrimaryContextPass,
                 (
+                    load_config_and_sync,  // Load from disk and sync resource
                     serial_ui,              // main UI layout
                     draw_serial_context_ui, // error popup windows
                     send_cache_data,        // auto-send on newline
@@ -214,6 +293,15 @@ fn serial_ui(
             });
         });
     panel_widths.left_width = left_show.response.rect.width();
+
+    // Update egui memory with new left width
+    ctx.memory_mut(|mem| {
+        let stored = mem.data.get_persisted_mut_or_insert_with(
+            egui::Id::new(PANEL_WIDTHS_ID),
+            PanelWidths::default,
+        );
+        stored.left_width = panel_widths.left_width;
+    });
 
     // ---------------- Central Panel ----------------
     egui::CentralPanel::default().show(ctx, |ui| {
@@ -407,6 +495,14 @@ fn serial_ui(
                 ui.label("LLM 功能侧边栏（可拓展：对话、分析、日志等）");
             });
         panel_widths.right_width = right_show.response.rect.width();
+        // Update egui memory with new right width
+        ctx.memory_mut(|mem| {
+            let stored = mem.data.get_persisted_mut_or_insert_with(
+                egui::Id::new(PANEL_WIDTHS_ID),
+                PanelWidths::default,
+            );
+            stored.right_width = panel_widths.right_width;
+        });
     }
 }
 

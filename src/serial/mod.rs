@@ -276,11 +276,10 @@ fn setup_serial_thread(serial: &mut Serial, runtime: &Runtime) {
     *serial.tx_channel() = Some(tx);
     *serial.rx_channel() = Some(rx1);
 
-    let port_settings = serial.set.clone();
-    let port_name = port_settings.port_name.clone();
+    let port_name = serial.set.port_name.clone();
 
     let handle = runtime.spawn(async move {
-        let port = match wait_for_port_open(&mut rx, &tx1, port_settings).await {
+        let port = match wait_for_port_open(&mut rx, &tx1).await {
             Ok(p) => p,
             Err(e) => {
                 error!("Failed to open port: {e:?}");
@@ -306,15 +305,14 @@ fn setup_serial_thread(serial: &mut Serial, runtime: &Runtime) {
     *serial.thread_handle() = Some(handle);
 }
 
-/// Waits for a port open request and opens the port.
+/// Waits for a port open request and opens the port with the provided settings.
 async fn wait_for_port_open(
     rx: &mut broadcast::Receiver<PortChannelData>,
     tx1: &broadcast::Sender<PortChannelData>,
-    port_settings: PortSettings,
 ) -> Result<SerialStream, SerialBevyError> {
     loop {
-        if matches!(rx.recv().await, Ok(PortChannelData::PortOpen)) {
-            return match open_port(&port_settings).await {
+        if let Ok(PortChannelData::PortOpen(settings)) = rx.recv().await {
+            return match open_port(&settings).await {
                 Ok(port) => Ok(port),
                 Err(e) => {
                     let _ = tx1.send(PortChannelData::PortError(PortRwData {
