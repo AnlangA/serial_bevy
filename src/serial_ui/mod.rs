@@ -230,7 +230,7 @@ fn serial_ui(
 
         // Use remaining vertical space for data receive area
         let available_height = ui.available_height();
-        let input_height = 120.0; // Reserve height for input area
+        let input_height = 140.0; // Reserve height for input area (increased for bottom spacing)
         let data_height = available_height - input_height;
 
         // Data receive area with fixed height
@@ -255,22 +255,26 @@ fn serial_ui(
                             );
                         } else {
                             let text = bytes_to_str_with_ansi(&data);
-                            
+
                             // Use AnsiParser to get colored segments with color info
                             let mut parser = egui_sgr::AnsiParser::new();
                             let colored_segments = parser.parse(&text);
-                            
+
                             // Strategy: Track current line content and flush when we see newline
-                            let mut current_line: Vec<(String, Option<egui::Color32>, Option<egui::Color32>)> = Vec::new();
-                            
+                            let mut current_line: Vec<(
+                                String,
+                                Option<egui::Color32>,
+                                Option<egui::Color32>,
+                            )> = Vec::new();
+
                             for seg in &colored_segments {
                                 let seg_text = &seg.text;
                                 let fg = seg.foreground_color;
                                 let bg = seg.background_color;
-                                
+
                                 let mut chars = seg_text.chars().peekable();
                                 let mut current_part = String::new();
-                                
+
                                 while let Some(ch) = chars.next() {
                                     if ch == '\n' {
                                         // Flush current part to line
@@ -282,7 +286,8 @@ fn serial_ui(
                                         if !current_line.is_empty() {
                                             ui.horizontal(|ui| {
                                                 for (text, fg, bg) in &current_line {
-                                                    let mut rt = egui::RichText::new(text).monospace();
+                                                    let mut rt =
+                                                        egui::RichText::new(text).monospace();
                                                     if let Some(color) = fg {
                                                         rt = rt.color(*color);
                                                     }
@@ -298,13 +303,13 @@ fn serial_ui(
                                         current_part.push(ch);
                                     }
                                 }
-                                
+
                                 // Add remaining part to current line
                                 if !current_part.is_empty() {
                                     current_line.push((current_part, fg, bg));
                                 }
                             }
-                            
+
                             // Flush any remaining content (last line without newline)
                             if !current_line.is_empty() {
                                 ui.horizontal(|ui| {
@@ -347,8 +352,8 @@ fn serial_ui(
                             llm_ui(ui, &mut serial);
                         });
 
-                        // Text input area
-                        let available_height = ui.available_height() - 30.0; // Leave space for margins
+                        // Text input area with improved bottom margin
+                        let available_height = ui.available_height() - 40.0; // Adjusted margin for better aesthetics
                         let font = egui::FontId::new(18.0, egui::FontFamily::Monospace);
                         ui.add_sized(
                             [ui.available_width(), available_height],
@@ -358,10 +363,16 @@ fn serial_ui(
                             .font(font)
                             .desired_width(f32::INFINITY),
                         );
+
+                        // Add extra vertical space at bottom to ensure distance from edge
+                        ui.add_space(20.0); // Increased space to prevent overlap with window bottom
                     }
                 }
             },
         );
+
+        // Add additional space after input area to ensure distance from window bottom
+        ui.add_space(5.0);
     });
 
     // ---------------- Right Side Panel (LLM) ----------------
