@@ -21,6 +21,7 @@ use tokio::sync::broadcast;
 use tokio_serial::{SerialPortType, available_ports};
 
 use crate::error::SerialBevyError;
+use crate::serial_ui::ui::Selected;
 
 // Re-exports for convenience
 pub use encoding::*;
@@ -208,6 +209,7 @@ fn discover_usb_ports() -> Vec<String> {
 fn update_serial_port_names(
     mut channel: ResMut<SerialNameChannel>,
     mut serials: Query<&mut Serials>,
+    mut selected: ResMut<Selected>,
 ) {
     let Ok(mut serials) = serials.single_mut() else {
         return;
@@ -235,6 +237,15 @@ fn update_serial_port_names(
                 let mut serial = Serial::new();
                 serial.set.port_name = name.clone();
                 serials.add(serial);
+            }
+        }
+
+        // Auto-select the first port if no port is currently selected
+        if selected.selected().is_empty() {
+            if let Some(first_serial) = serials.serial.first() {
+                if let Ok(serial) = first_serial.lock() {
+                    selected.select(&serial.set.port_name);
+                }
             }
         }
     }
