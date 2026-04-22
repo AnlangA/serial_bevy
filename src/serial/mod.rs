@@ -618,6 +618,7 @@ fn process_ai_requests(
     mut serials: Query<&mut Serials>,
     runtime: Res<Runtime>,
     ai_channel: Res<AiChannel>,
+    app_config: Res<crate::serial_ui::PanelWidths>,
 ) {
     let Ok(mut serials) = serials.single_mut() else {
         return;
@@ -630,7 +631,7 @@ fn process_ai_requests(
 
         let port_name = serial.set.port_name.clone();
         let llm = serial.llm();
-        if !llm.enable || !llm.is_processing || llm.key.is_empty() {
+        if !llm.enable || !llm.is_processing || app_config.llm_key.is_empty() {
             continue;
         }
         // Prevent spawning duplicate requests every frame while waiting for response
@@ -640,9 +641,9 @@ fn process_ai_requests(
 
         // Take the messages to send
         let messages = llm.messages.clone();
-        let model = llm.model.clone();
-        let key = llm.key.clone();
-        let with_coding_plan = llm.with_coding_plan;
+        let model = app_config.llm_model.clone();
+        let key = app_config.llm_key.clone();
+        let with_coding_plan = app_config.llm_with_coding_plan;
 
         // Check if the last message is from user (we need to respond)
         let should_send = messages.last().map(|m| m.role == "user").unwrap_or(false);

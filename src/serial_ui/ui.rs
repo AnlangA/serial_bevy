@@ -320,17 +320,17 @@ pub fn llm_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     });
 }
 
-/// Draws the model selector for LLM.
-pub fn draw_llm_model_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+/// Draws the model selector for LLM (global config).
+pub fn draw_llm_model_selector(ui: &mut egui::Ui, config: &mut crate::serial_ui::PanelWidths) {
     ui.horizontal(|ui| {
         ui.label("Model:");
-        egui::ComboBox::from_id_salt(format!("{}_llm_model", serial.set.port_name))
+        egui::ComboBox::from_id_salt("llm_model_selector")
             .width(130f32)
-            .selected_text(serial.llm().get_model())
+            .selected_text(&config.llm_model)
             .show_ui(ui, |ui| {
                 for (model_id, display_name) in TEXT_MODELS {
                     ui.selectable_value(
-                        &mut serial.llm().model,
+                        &mut config.llm_model,
                         model_id.to_string(),
                         *display_name,
                     );
@@ -339,22 +339,22 @@ pub fn draw_llm_model_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Se
     });
 }
 
-/// Draws the API key input for LLM.
-pub fn draw_llm_key_input(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+/// Draws the API key input for LLM (global config).
+pub fn draw_llm_key_input(ui: &mut egui::Ui, config: &mut crate::serial_ui::PanelWidths) {
     ui.horizontal(|ui| {
         ui.label("Key:");
         ui.add(
-            egui::TextEdit::singleline(&mut serial.llm().key)
+            egui::TextEdit::singleline(&mut config.llm_key)
                 .password(true)
                 .desired_width(120.0),
         );
     });
 }
 
-/// Draws the coding plan toggle for LLM.
-pub fn draw_llm_coding_plan_toggle(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+/// Draws the coding plan toggle for LLM (global config).
+pub fn draw_llm_coding_plan_toggle(ui: &mut egui::Ui, config: &mut crate::serial_ui::PanelWidths) {
     ui.horizontal(|ui| {
-        let with_coding = serial.llm().with_coding_plan;
+        let with_coding = config.llm_with_coding_plan;
         let button_text = if with_coding {
             "Coding: ON"
         } else {
@@ -365,7 +365,7 @@ pub fn draw_llm_coding_plan_toggle(ui: &mut egui::Ui, serial: &mut MutexGuard<'_
             .on_hover_text("Toggle coding plan mode")
             .clicked()
         {
-            serial.llm().with_coding_plan = !with_coding;
+            config.llm_with_coding_plan = !with_coding;
         }
     });
 }
@@ -520,34 +520,44 @@ fn render_message_content(
 }
 
 /// Draws the input area and send button for LLM with multi-line support.
-pub fn draw_llm_input_area(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+pub fn draw_llm_input_area(
+    ui: &mut egui::Ui,
+    serial: &mut MutexGuard<'_, Serial>,
+    config: &mut crate::serial_ui::PanelWidths,
+) {
     let available_width = ui.available_width();
+    const LLM_INPUT_HEIGHT: f32 = 75.0;
+    let font = egui::FontId::new(18.0, egui::FontFamily::Monospace);
 
     ui.horizontal_top(|ui| {
-        let input_width = available_width - 66.0;
+        let input_width = (available_width - 66.0).max(20.0);
         ui.add_sized(
-            [input_width, 64.0],
+            [input_width, LLM_INPUT_HEIGHT],
             egui::TextEdit::multiline(&mut serial.llm().input_buffer)
                 .hint_text("Ask AI...")
-                .desired_width(f32::INFINITY),
+                .font(font),
         );
 
         let can_send = !serial.llm().input_buffer.trim().is_empty()
-            && !serial.llm().key.is_empty()
+            && !config.llm_key.is_empty()
             && !serial.llm().is_processing;
 
         ui.vertical(|ui| {
             let send_button = ui.add_sized(
-                [60.0, 64.0],
+                [60.0, LLM_INPUT_HEIGHT],
                 egui::Button::new(egui::RichText::new("Send").strong()),
             );
 
-            if send_button.clicked() && can_send {
-                let content = serial.llm().input_buffer.trim().to_string();
-                if !content.is_empty() {
-                    serial.llm().add_user_message(&content);
-                    serial.llm().input_buffer.clear();
-                    serial.llm().is_processing = true;
+            if send_button.clicked() {
+                if config.llm_key.is_empty() || config.llm_model.is_empty() {
+                    config.show_key_missing_popup = true;
+                } else if can_send {
+                    let content = serial.llm().input_buffer.trim().to_string();
+                    if !content.is_empty() {
+                        serial.llm().add_user_message(&content);
+                        serial.llm().input_buffer.clear();
+                        serial.llm().is_processing = true;
+                    }
                 }
             }
         });

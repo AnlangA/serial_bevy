@@ -936,16 +936,10 @@ pub const TEXT_MODELS: &[(&str, &str)] = &[
     ("glm-4.5-airx", "GLM-4.5-AirX"),
 ];
 
-/// LLM configuration for AI features.
+/// LLM configuration for AI features (per-serial state).
 pub struct LlmConfig {
-    /// Whether LLM features are enabled.
+    /// Whether LLM features are enabled for this serial port.
     pub enable: bool,
-    /// API key for the LLM service.
-    pub key: String,
-    /// Model name.
-    pub model: String,
-    /// Whether to use coding plan endpoint.
-    pub with_coding_plan: bool,
     /// Conversation history messages (role, content).
     pub messages: Vec<LlmMessage>,
     /// Current user input buffer.
@@ -955,10 +949,6 @@ pub struct LlmConfig {
     /// Whether the request has already been dispatched to async runtime.
     /// Prevents spawning duplicate requests every frame.
     pub request_in_flight: bool,
-    /// Temperature for generation (0.0-1.0).
-    pub temperature: f32,
-    /// Top-p for generation (0.0-1.0).
-    pub top_p: f32,
 }
 
 impl Default for LlmConfig {
@@ -973,37 +963,16 @@ impl LlmConfig {
     pub fn new() -> Self {
         Self {
             enable: false,
-            key: String::new(),
-            model: String::from("glm-4.5-flash"),
-            with_coding_plan: false,
             messages: Vec::new(),
             input_buffer: String::new(),
             is_processing: false,
             request_in_flight: false,
-            temperature: 0.7,
-            top_p: 0.9,
         }
     }
 
     /// Gets a mutable reference to the enable flag.
     pub const fn enable(&mut self) -> &mut bool {
         &mut self.enable
-    }
-
-    /// Sets the API key.
-    pub fn set_key(&mut self, key: &str) {
-        self.key = key.to_string();
-    }
-
-    /// Sets the model name.
-    pub fn set_model(&mut self, model: &str) {
-        self.model = model.to_string();
-    }
-
-    /// Gets the model name.
-    #[must_use]
-    pub fn get_model(&self) -> &str {
-        &self.model
     }
 
     /// Adds a user message to the conversation.
@@ -1131,13 +1100,9 @@ mod tests {
     fn test_llm_config() {
         let mut config = LlmConfig::new();
         assert!(!*config.enable());
-        assert_eq!(config.get_model(), "glm-4.5-flash");
-        assert!(!config.with_coding_plan);
         assert!(config.messages.is_empty());
         assert!(!config.is_processing);
-
-        config.set_model("glm-4.7");
-        assert_eq!(config.get_model(), "glm-4.7");
+        assert!(!config.request_in_flight);
 
         config.add_user_message("Hello");
         assert_eq!(config.messages.len(), 1);

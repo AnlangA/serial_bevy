@@ -23,6 +23,12 @@ fn main() {
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         title: "Serial Bevy - Serial Port Tool".to_string(),
+                        present_mode: bevy::window::PresentMode::AutoNoVsync,
+                        resize_constraints: bevy::window::WindowResizeConstraints {
+                            min_width: 400.0,
+                            min_height: 300.0,
+                            ..default()
+                        },
                         ..default()
                     }),
                     ..default()

@@ -6,10 +6,9 @@
 //! - Central `egui::CentralPanel`: data receive window + input/editor
 //! - Right `egui::SidePanel` (conditional): LLM related info when enabled
 //!
-//! This version uses egui's built-in memory persistence for configuration storage:
-//! - Panel widths are stored in `egui::Memory::data` using `insert_persisted`/`get_persisted`
-//! - Configuration is automatically serialized to `config/app_memory.ron` on app exit
-//! - Configuration is loaded from the same file on startup
+//! Configuration is persisted directly to `config/app_memory.ron` via serde,
+//! independent of egui memory. LLM settings are saved regardless of whether
+//! the LLM panel is currently visible.
 
 pub mod ui;
 
@@ -68,27 +67,40 @@ use ui::{
     llm_ui, timestamp_ui,
 };
 
-/// Configuration file path for egui memory persistence.
+/// Configuration file path for app persistence.
 const CONFIG_FILE: &str = "config/app_memory.ron";
 
-/// Unique ID for storing panel widths in egui memory.
-const PANEL_WIDTHS_ID: &str = "panel_widths";
-
-/// Resource storing current (and persisted) side panel widths.
-/// Uses serde for serialization with egui's persistence system.
+/// Resource storing current (and persisted) UI configuration.
+/// Saved to disk directly, independent of egui memory.
 #[derive(Resource, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PanelWidths {
     /// Current (user-adjustable) width of the left side panel.
     pub left_width: f32,
     /// Current (user-adjustable) width of the right side panel.
     pub right_width: f32,
+    /// Global LLM API key (shared across all serial ports).
+    #[serde(default)]
+    pub llm_key: String,
+    /// Global LLM model selection (shared across all serial ports).
+    #[serde(default)]
+    pub llm_model: String,
+    /// Global LLM coding plan toggle (shared across all serial ports).
+    #[serde(default)]
+    pub llm_with_coding_plan: bool,
+    /// Whether to show the "missing API key" popup warning.
+    #[serde(skip)]
+    pub show_key_missing_popup: bool,
 }
 
 impl Default for PanelWidths {
     fn default() -> Self {
         Self {
             left_width: 160.0,
-            right_width: 260.0,
+            right_width: 220.0,
+            llm_key: String::new(),
+            llm_model: String::from("glm-4.5-air"),
+            llm_with_coding_plan: false,
+            show_key_missing_popup: false,
         }
     }
 }
@@ -101,66 +113,42 @@ impl PanelWidths {
     }
 }
 
-/// System: initialize panel widths resource with defaults.
-/// The actual loading from egui memory happens in the first UI frame.
-fn init_panel_widths(mut commands: Commands) {
-    commands.insert_resource(PanelWidths::default());
-}
-
-/// Load configuration from disk file into egui memory on startup.
-fn load_config_from_disk(ctx: &egui::Context) {
-    // Ensure config directory exists
-    if let Err(e) = std::fs::create_dir_all("config") {
-        eprintln!("[serial_ui] Failed to create config directory: {e}");
-        return;
-    }
-
-    // Try to load and deserialize the memory file
+/// Load configuration directly from disk file.
+fn load_config_from_disk() -> Option<PanelWidths> {
     if let Ok(data) = std::fs::read_to_string(CONFIG_FILE) {
         match ron::from_str::<PanelWidths>(&data) {
-            Ok(widths) => {
-                let mut widths = widths;
+            Ok(mut widths) => {
                 widths.clamp();
-                ctx.memory_mut(|mem| {
-                    mem.data
-                        .insert_persisted(egui::Id::new(PANEL_WIDTHS_ID), widths);
-                });
-                log::debug!("[serial_ui] Loaded panel widths from config file");
+                log::debug!("[serial_ui] Loaded panel config from disk");
+                return Some(widths);
             }
             Err(e) => {
                 log::warn!("[serial_ui] Failed to parse config file: {e}, using defaults");
             }
         }
     }
+    None
 }
 
-/// Save configuration from egui memory to disk file on exit.
-fn save_config_to_disk(ctx: &egui::Context) {
-    log::debug!("[serial_ui] Saving configuration to disk...");
-    let widths = ctx.memory_mut(|mem| {
-        mem.data
-            .get_persisted::<PanelWidths>(egui::Id::new(PANEL_WIDTHS_ID))
-            .unwrap_or_default()
-    });
-
+/// Save configuration directly to disk file.
+fn save_config_to_disk(widths: &PanelWidths) {
     log::debug!(
-        "[serial_ui] Panel widths to save: left={}, right={}",
+        "[serial_ui] Saving panel config to disk: left={}, right={}",
         widths.left_width,
         widths.right_width
     );
 
-    // Ensure config directory exists
     if let Err(e) = std::fs::create_dir_all("config") {
         eprintln!("[serial_ui] Failed to create config directory: {e}");
         return;
     }
 
-    match ron::to_string(&widths) {
+    match ron::to_string(widths) {
         Ok(data) => {
             if let Err(e) = std::fs::write(CONFIG_FILE, data) {
                 eprintln!("[serial_ui] Failed to write config file: {e}");
             } else {
-                log::debug!("[serial_ui] Saved panel widths to config file");
+                log::debug!("[serial_ui] Saved panel config to disk");
             }
         }
         Err(e) => {
@@ -169,45 +157,22 @@ fn save_config_to_disk(ctx: &egui::Context) {
     }
 }
 
-/// System: save configuration when app is exiting.
-/// Uses Last schedule to ensure it runs even during app shutdown.
-fn save_config_on_exit(mut contexts: EguiContexts, mut exit_events: MessageReader<AppExit>) {
+/// System: initialize panel config resource, loading from disk if available.
+fn init_panel_widths(mut commands: Commands) {
+    let config = load_config_from_disk().unwrap_or_default();
+    commands.insert_resource(config);
+}
+
+/// System: save configuration directly from resource when app is exiting.
+fn save_config_on_exit(
+    panel_widths: Res<PanelWidths>,
+    mut exit_events: MessageReader<AppExit>,
+) {
     if !exit_events.is_empty() {
         exit_events.clear();
         log::debug!("[serial_ui] App exit detected, saving configuration...");
-        if let Ok(ctx) = contexts.ctx_mut() {
-            save_config_to_disk(&ctx);
-        } else {
-            log::warn!("[serial_ui] Could not get egui context to save config");
-        }
+        save_config_to_disk(&panel_widths);
     }
-}
-
-/// System: load config from disk on first frame and sync to resource.
-/// Uses a local state to track if config has been loaded.
-fn load_config_and_sync(
-    mut contexts: EguiContexts,
-    mut panel_widths: ResMut<PanelWidths>,
-    mut loaded: Local<bool>,
-) {
-    let Ok(ctx) = contexts.ctx_mut() else {
-        return;
-    };
-
-    // Load from disk only once
-    if !*loaded {
-        load_config_from_disk(&ctx);
-        *loaded = true;
-    }
-
-    // Sync resource from egui memory
-    let widths = ctx.memory_mut(|mem| {
-        mem.data
-            .get_persisted::<PanelWidths>(egui::Id::new(PANEL_WIDTHS_ID))
-            .unwrap_or_default()
-    });
-
-    *panel_widths = widths;
 }
 
 /// Plugin for the serial UI.
@@ -229,7 +194,6 @@ impl Plugin for SerialUiPlugin {
             .add_systems(
                 EguiPrimaryContextPass,
                 (
-                    load_config_and_sync,   // Load from disk and sync resource
                     serial_ui,              // main UI layout
                     draw_serial_context_ui, // error popup windows
                     send_cache_data,        // auto-send on newline
@@ -296,17 +260,14 @@ fn serial_ui(
                 }
                 ui.separator();
                 draw_serial_setting_ui(ui, selected.as_mut());
+                ui.separator();
+                ui.label(egui::RichText::new("LLM Settings").strong());
+                draw_llm_model_selector(ui, &mut panel_widths);
+                draw_llm_key_input(ui, &mut panel_widths);
+                draw_llm_coding_plan_toggle(ui, &mut panel_widths);
             });
         });
     panel_widths.left_width = left_show.response.rect.width();
-
-    // Update egui memory with new left width
-    ctx.memory_mut(|mem| {
-        let stored = mem
-            .data
-            .get_persisted_mut_or_insert_with(egui::Id::new(PANEL_WIDTHS_ID), PanelWidths::default);
-        stored.left_width = panel_widths.left_width;
-    });
 
     // ---------------- Central Panel ----------------
     egui::CentralPanel::default().show(ctx, |ui| {
@@ -324,7 +285,7 @@ fn serial_ui(
         // Use remaining vertical space for data receive area
         let available_height = ui.available_height();
         let input_height = 140.0; // Reserve height for input area (increased for bottom spacing)
-        let data_height = available_height - input_height;
+        let data_height = (available_height - input_height).max(0.0);
 
         // Data receive area with fixed height
         for serial in &mut serials_data.serial {
@@ -446,7 +407,7 @@ fn serial_ui(
                         });
 
                         // Text input area with improved bottom margin
-                        let available_height = ui.available_height() - 40.0; // Adjusted margin for better aesthetics
+                        let available_height = (ui.available_height() - 40.0).max(20.0); // Adjusted margin for better aesthetics
                         let font = egui::FontId::new(18.0, egui::FontFamily::Monospace);
                         ui.add_sized(
                             [ui.available_width(), available_height],
@@ -485,7 +446,7 @@ fn serial_ui(
             .resizable(true)
             .default_width(panel_widths.right_width)
             .min_width(200.0)
-            .max_width(800.0)
+            .max_width(400.0)
             .show(ctx, |ui| {
                 for serial_ref in &mut serials_data.serial {
                     let Ok(mut serial) = serial_ref.lock() else {
@@ -512,26 +473,33 @@ fn serial_ui(
                             );
                         });
                         ui.separator();
-                        draw_llm_model_selector(ui, &mut serial);
-                        draw_llm_key_input(ui, &mut serial);
-                        draw_llm_coding_plan_toggle(ui, &mut serial);
-                        ui.separator();
                         draw_llm_conversation(ui, &mut serial);
                         ui.separator();
-                        draw_llm_input_area(ui, &mut serial);
+                        draw_llm_input_area(ui, &mut serial, &mut *panel_widths);
+                        ui.add_space(20.0);
                         break;
                     }
                 }
+                ui.add_space(5.0);
             });
         panel_widths.right_width = right_show.response.rect.width();
-        // Update egui memory with new right width
-        ctx.memory_mut(|mem| {
-            let stored = mem.data.get_persisted_mut_or_insert_with(
-                egui::Id::new(PANEL_WIDTHS_ID),
-                PanelWidths::default,
-            );
-            stored.right_width = panel_widths.right_width;
-        });
+    }
+
+    // Show "missing API key or model" popup if triggered
+    if panel_widths.show_key_missing_popup {
+        egui::Window::new("LLM Configuration Required")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label("Please enter your LLM API key and select a model in the left settings panel.");
+                ui.horizontal(|ui| {
+                    ui.add_space(ui.available_width() / 2.0 - 40.0);
+                    if ui.button("  OK  ").clicked() {
+                        panel_widths.show_key_missing_popup = false;
+                    }
+                });
+            });
     }
 }
 
