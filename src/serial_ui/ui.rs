@@ -3,7 +3,7 @@
 //! This module provides individual UI components for serial port configuration and control.
 
 use crate::serial::Serials;
-use crate::serial::port::{COMMON_BAUD_RATES, DataType, PortChannelData, Serial};
+use crate::serial::port::{COMMON_BAUD_RATES, DataType, PortChannelData, Serial, TEXT_MODELS};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use log::info;
@@ -317,6 +317,238 @@ pub fn llm_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
         if ui.button(button_text).clicked() {
             *serial.llm().enable() = !llm_enable;
         }
+    });
+}
+
+/// Draws the model selector for LLM.
+pub fn draw_llm_model_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    ui.horizontal(|ui| {
+        ui.label("Model:");
+        egui::ComboBox::from_id_salt(format!("{}_llm_model", serial.set.port_name))
+            .width(130f32)
+            .selected_text(serial.llm().get_model())
+            .show_ui(ui, |ui| {
+                for (model_id, display_name) in TEXT_MODELS {
+                    ui.selectable_value(
+                        &mut serial.llm().model,
+                        model_id.to_string(),
+                        *display_name,
+                    );
+                }
+            });
+    });
+}
+
+/// Draws the API key input for LLM.
+pub fn draw_llm_key_input(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    ui.horizontal(|ui| {
+        ui.label("Key:");
+        ui.add(
+            egui::TextEdit::singleline(&mut serial.llm().key
+            )
+            .password(true)
+            .desired_width(120.0),
+        );
+    });
+}
+
+/// Draws the coding plan toggle for LLM.
+pub fn draw_llm_coding_plan_toggle(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    ui.horizontal(|ui| {
+        let with_coding = serial.llm().with_coding_plan;
+        let button_text = if with_coding {
+            "Coding: ON"
+        } else {
+            "Coding: OFF"
+        };
+        if ui.button(button_text).on_hover_text("Toggle coding plan mode").clicked() {
+            serial.llm().with_coding_plan = !with_coding;
+        }
+    });
+}
+
+/// Draws the conversation history for LLM with bubble chat styling.
+pub fn draw_llm_conversation(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    let visuals = ui.visuals().clone();
+    let available_height = (ui.available_height() - 80.0).max(120.0);
+
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .max_height(available_height)
+        .stick_to_bottom(true)
+        .show(ui, |ui| {
+            for msg in &serial.llm().messages {
+                let is_user = msg.role == "user";
+
+                // Choose bubble colors based on role and theme
+                let (bubble_color, text_color, role_color, role_text) = if is_user {
+                    (
+                        egui::Color32::from_rgb(37, 99, 235),
+                        egui::Color32::WHITE,
+                        egui::Color32::from_rgb(59, 130, 246),
+                        "You",
+                    )
+                } else if visuals.dark_mode {
+                    (
+                        egui::Color32::from_rgb(55, 65, 81),
+                        egui::Color32::from_rgb(229, 231, 235),
+                        egui::Color32::from_rgb(16, 185, 129),
+                        "AI",
+                    )
+                } else {
+                    (
+                        egui::Color32::from_rgb(243, 244, 246),
+                        egui::Color32::from_rgb(31, 41, 55),
+                        egui::Color32::from_rgb(5, 150, 105),
+                        "AI",
+                    )
+                };
+
+                // Align user messages to the right, AI to the left
+                ui.with_layout(
+                    egui::Layout::top_down(if is_user {
+                        egui::Align::RIGHT
+                    } else {
+                        egui::Align::LEFT
+                    })
+                    .with_cross_align(if is_user {
+                        egui::Align::RIGHT
+                    } else {
+                        egui::Align::LEFT
+                    }),
+                    |ui| {
+                        // Message header: role + timestamp
+                        ui.horizontal(|ui| {
+                            if is_user {
+                                ui.label(
+                                    egui::RichText::new(&msg.timestamp).weak().small(),
+                                );
+                                ui.label(
+                                    egui::RichText::new(role_text).strong().color(role_color),
+                                );
+                            } else {
+                                ui.label(
+                                    egui::RichText::new(role_text).strong().color(role_color),
+                                );
+                                ui.label(
+                                    egui::RichText::new(&msg.timestamp).weak().small(),
+                                );
+                            }
+                        });
+
+                        // Bubble frame
+                        let frame = egui::Frame::new()
+                            .fill(bubble_color)
+                            .corner_radius(10.0)
+                            .inner_margin(egui::Margin::symmetric(12, 10));
+                        frame.show(ui, |ui| {
+                            ui.set_max_width(280.0);
+                            render_message_content(ui, &msg.content, text_color, &visuals);
+                        });
+                    },
+                );
+
+                ui.add_space(10.0);
+            }
+
+            if serial.llm().is_processing {
+                ui.with_layout(
+                    egui::Layout::top_down(egui::Align::LEFT)
+                        .with_cross_align(egui::Align::LEFT),
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(
+                                egui::RichText::new("AI is thinking...")
+                                    .italics()
+                                    .color(egui::Color32::GRAY),
+                            );
+                        });
+                    },
+                );
+                ui.add_space(4.0);
+            }
+        });
+}
+
+/// Renders message content with code block highlighting.
+fn render_message_content(
+    ui: &mut egui::Ui,
+    content: &str,
+    default_color: egui::Color32,
+    visuals: &egui::Visuals,
+) {
+    let parts: Vec<&str> = content.split("```").collect();
+    for (i, part) in parts.iter().enumerate() {
+        let part = *part;
+        if i % 2 == 0 {
+            // Normal text
+            let trimmed = part.trim();
+            if !trimmed.is_empty() {
+                ui.label(egui::RichText::new(part).color(default_color).size(14.0));
+            }
+        } else {
+            // Code block
+            let mut lines = part.lines();
+            let first_line = lines.next().unwrap_or("");
+            let _lang = first_line.trim();
+            let code: String = lines.collect::<Vec<_>>().join("\n");
+
+            let code_bg = if visuals.dark_mode {
+                egui::Color32::from_rgb(20, 20, 25)
+            } else {
+                egui::Color32::from_rgb(40, 40, 45)
+            };
+
+            egui::Frame::new()
+                .fill(code_bg)
+                .corner_radius(6.0)
+                .inner_margin(egui::Margin::same(8))
+                .show(ui, |ui| {
+                    ui.set_max_width(250.0);
+                    ui.label(
+                        egui::RichText::new(code.trim())
+                            .monospace()
+                            .color(egui::Color32::from_rgb(220, 220, 220))
+                            .size(12.0),
+                    );
+                });
+        }
+    }
+}
+
+/// Draws the input area and send button for LLM with multi-line support.
+pub fn draw_llm_input_area(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    let available_width = ui.available_width();
+
+    ui.horizontal_top(|ui| {
+        let input_width = available_width - 66.0;
+        ui.add_sized(
+            [input_width, 64.0],
+            egui::TextEdit::multiline(&mut serial.llm().input_buffer)
+                .hint_text("Ask AI...")
+                .desired_width(f32::INFINITY),
+        );
+
+        let can_send = !serial.llm().input_buffer.trim().is_empty()
+            && !serial.llm().key.is_empty()
+            && !serial.llm().is_processing;
+
+        ui.vertical(|ui| {
+            let send_button = ui.add_sized(
+                [60.0, 64.0],
+                egui::Button::new(egui::RichText::new("Send").strong()),
+            );
+
+            if send_button.clicked() && can_send {
+                let content = serial.llm().input_buffer.trim().to_string();
+                if !content.is_empty() {
+                    serial.llm().add_user_message(&content);
+                    serial.llm().input_buffer.clear();
+                    serial.llm().is_processing = true;
+                }
+            }
+        });
     });
 }
 

@@ -925,6 +925,17 @@ impl fmt::Display for DataSource {
     }
 }
 
+/// Available text models for AI chat.
+pub const TEXT_MODELS: &[(&str, &str)] = &[
+    ("glm-4.7", "GLM-4.7"),
+    ("glm-4.6", "GLM-4.6"),
+    ("glm-4.5", "GLM-4.5"),
+    ("glm-4.5-flash", "GLM-4.5-Flash"),
+    ("glm-4.5-air", "GLM-4.5-Air"),
+    ("glm-4.5-X", "GLM-4.5-X"),
+    ("glm-4.5-airx", "GLM-4.5-AirX"),
+];
+
 /// LLM configuration for AI features.
 pub struct LlmConfig {
     /// Whether LLM features are enabled.
@@ -933,14 +944,18 @@ pub struct LlmConfig {
     pub key: String,
     /// Model name.
     pub model: String,
-    /// Stored conversation history.
-    pub stored_message: Vec<LlmMessage>,
-    /// Current conversation.
-    pub current_message: Vec<LlmMessage>,
-    /// Associated file names.
-    pub file_name: Vec<String>,
-    /// Current LLM state.
-    pub state: LlmState,
+    /// Whether to use coding plan endpoint.
+    pub with_coding_plan: bool,
+    /// Conversation history messages (role, content).
+    pub messages: Vec<LlmMessage>,
+    /// Current user input buffer.
+    pub input_buffer: String,
+    /// Whether an AI request is in flight.
+    pub is_processing: bool,
+    /// Temperature for generation (0.0-1.0).
+    pub temperature: f32,
+    /// Top-p for generation (0.0-1.0).
+    pub top_p: f32,
 }
 
 impl Default for LlmConfig {
@@ -956,11 +971,13 @@ impl LlmConfig {
         Self {
             enable: false,
             key: String::new(),
-            model: String::from("glm-4-flash"),
-            stored_message: Vec::new(),
-            current_message: Vec::new(),
-            file_name: Vec::new(),
-            state: LlmState::default(),
+            model: String::from("glm-4.5-flash"),
+            with_coding_plan: false,
+            messages: Vec::new(),
+            input_buffer: String::new(),
+            is_processing: false,
+            temperature: 0.7,
+            top_p: 0.9,
         }
     }
 
@@ -985,36 +1002,25 @@ impl LlmConfig {
         &self.model
     }
 
-    /// Stores a message in history.
-    pub fn store_message(&mut self, message: LlmMessage) {
-        self.stored_message.push(message);
+    /// Adds a user message to the conversation.
+    pub fn add_user_message(&mut self, content: &str) {
+        self.messages.push(LlmMessage::user(content));
     }
 
-    /// Gets stored messages.
+    /// Adds an assistant message to the conversation.
+    pub fn add_assistant_message(&mut self, content: &str) {
+        self.messages.push(LlmMessage::assistant(content));
+    }
+
+    /// Clears the conversation history.
+    pub fn clear_messages(&mut self) {
+        self.messages.clear();
+    }
+
+    /// Returns true if there are messages.
     #[must_use]
-    pub fn get_stored_message(&self) -> &[LlmMessage] {
-        &self.stored_message
-    }
-
-    /// Sets the current conversation.
-    pub fn set_current_message(&mut self, message: Vec<LlmMessage>) {
-        self.current_message = message;
-    }
-
-    /// Gets current messages.
-    #[must_use]
-    pub fn get_current_message(&self) -> &[LlmMessage] {
-        &self.current_message
-    }
-
-    /// Clears current messages.
-    pub fn clear_current_message(&mut self) {
-        self.current_message.clear();
-    }
-
-    /// Adds a file name.
-    pub fn set_file_name(&mut self, file_name: &str) {
-        self.file_name.push(file_name.to_string());
+    pub fn has_messages(&self) -> bool {
+        !self.messages.is_empty()
     }
 }
 
@@ -1025,42 +1031,27 @@ pub struct LlmMessage {
     pub role: String,
     /// The message content.
     pub content: String,
+    /// Timestamp when the message was created.
+    pub timestamp: String,
 }
 
-/// LLM operation state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum LlmState {
-    /// Ready to process requests.
-    #[default]
-    Ready,
-    /// Currently processing a request.
-    Processing,
-    /// An error occurred.
-    Error,
-}
-
-impl LlmState {
-    /// Returns true if ready.
-    #[must_use]
-    pub const fn is_ready(&self) -> bool {
-        matches!(self, Self::Ready)
+impl LlmMessage {
+    /// Creates a new user message with current timestamp.
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: String::from("user"),
+            content: content.into(),
+            timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+        }
     }
 
-    /// Returns true if processing.
-    #[must_use]
-    pub const fn is_processing(&self) -> bool {
-        matches!(self, Self::Processing)
-    }
-
-    /// Returns true if in error state.
-    #[must_use]
-    pub const fn is_error(&self) -> bool {
-        matches!(self, Self::Error)
-    }
-
-    /// Sets the state.
-    pub const fn set_state(&mut self, state: Self) {
-        *self = state;
+    /// Creates a new assistant message with current timestamp.
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self {
+            role: String::from("assistant"),
+            content: content.into(),
+            timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+        }
     }
 }
 
@@ -1136,22 +1127,24 @@ mod tests {
     fn test_llm_config() {
         let mut config = LlmConfig::new();
         assert!(!*config.enable());
-        assert_eq!(config.get_model(), "glm-4-flash");
+        assert_eq!(config.get_model(), "glm-4.5-flash");
+        assert!(!config.with_coding_plan);
+        assert!(config.messages.is_empty());
+        assert!(!config.is_processing);
 
-        config.set_model("gpt-4");
-        assert_eq!(config.get_model(), "gpt-4");
-    }
+        config.set_model("glm-4.7");
+        assert_eq!(config.get_model(), "glm-4.7");
 
-    #[test]
-    fn test_llm_state() {
-        let mut state = LlmState::Ready;
-        assert!(state.is_ready());
+        config.add_user_message("Hello");
+        assert_eq!(config.messages.len(), 1);
+        assert_eq!(config.messages[0].role, "user");
 
-        state.set_state(LlmState::Processing);
-        assert!(state.is_processing());
+        config.add_assistant_message("Hi there");
+        assert_eq!(config.messages.len(), 2);
+        assert_eq!(config.messages[1].role, "assistant");
 
-        state.set_state(LlmState::Error);
-        assert!(state.is_error());
+        config.clear_messages();
+        assert!(config.messages.is_empty());
     }
 
     #[test]

@@ -38,7 +38,7 @@ ron = "0.8"
 egui_sgr = "0.1"
 
 # AI integration
-zhipuai-rs = "0.2.4"
+zai-rs = { git = "https://github.com/AnlangA/zai-rs" }
 
 [dev-dependencies]
 # Testing utilities

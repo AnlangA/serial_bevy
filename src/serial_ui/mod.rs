@@ -61,9 +61,11 @@ fn bytes_to_str_with_ansi(data: &[u8]) -> String {
 }
 use ui::{
     Selected, console_mode_ui, data_line_feed_ui, data_type_ui, draw_baud_rate_selector,
-    draw_data_bits_selector, draw_flow_control_selector, draw_parity_selector,
-    draw_select_serial_ui, draw_serial_context_label_ui, draw_serial_context_ui,
-    draw_serial_setting_ui, draw_stop_bits_selector, draw_timeout_selector, llm_ui, timestamp_ui,
+    draw_data_bits_selector, draw_flow_control_selector, draw_llm_coding_plan_toggle,
+    draw_llm_conversation, draw_llm_input_area, draw_llm_key_input, draw_llm_model_selector,
+    draw_parity_selector, draw_select_serial_ui, draw_serial_context_label_ui,
+    draw_serial_context_ui, draw_serial_setting_ui, draw_stop_bits_selector, draw_timeout_selector,
+    llm_ui, timestamp_ui,
 };
 
 /// Configuration file path for egui memory persistence.
@@ -465,14 +467,12 @@ fn serial_ui(
 
     // ---------------- Right Side Panel (LLM) ----------------
     let mut llm_enabled_for_selected = false;
-    let mut llm_port_name = String::new();
     for serial_ref in &mut serials_data.serial {
         let Ok(mut serial) = serial_ref.lock() else {
             continue;
         };
         if selected.is_selected(&serial.set.port_name) && *serial.llm().enable() {
             llm_enabled_for_selected = true;
-            llm_port_name = serial.set.port_name.clone();
             break;
         }
     }
@@ -481,18 +481,37 @@ fn serial_ui(
         let right_show = egui::SidePanel::right("serial_ui_right")
             .resizable(true)
             .default_width(panel_widths.right_width)
-            .min_width(160.0)
+            .min_width(200.0)
             .max_width(800.0)
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(format!("LLM Port: {llm_port_name}"))
-                            .strong()
-                            .color(egui::Color32::from_rgb(40, 40, 160)),
-                    );
-                });
-                ui.separator();
-                ui.label("LLM 功能侧边栏（可拓展：对话、分析、日志等）");
+                for serial_ref in &mut serials_data.serial {
+                    let Ok(mut serial) = serial_ref.lock() else {
+                        continue;
+                    };
+                    if selected.is_selected(&serial.set.port_name) {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(format!("LLM: {}", serial.set.port_name))
+                                    .strong()
+                                    .color(egui::Color32::from_rgb(40, 40, 160)),
+                            );
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button("Clear").on_hover_text("Clear conversation history").clicked() {
+                                    serial.llm().clear_messages();
+                                }
+                            });
+                        });
+                        ui.separator();
+                        draw_llm_model_selector(ui, &mut serial);
+                        draw_llm_key_input(ui, &mut serial);
+                        draw_llm_coding_plan_toggle(ui, &mut serial);
+                        ui.separator();
+                        draw_llm_conversation(ui, &mut serial);
+                        ui.separator();
+                        draw_llm_input_area(ui, &mut serial);
+                        break;
+                    }
+                }
             });
         panel_widths.right_width = right_show.response.rect.width();
         // Update egui memory with new right width

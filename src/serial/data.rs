@@ -35,6 +35,44 @@ impl Default for SerialNameChannel {
     }
 }
 
+/// Response from an AI chat request.
+#[derive(Clone, Debug)]
+pub struct AiResponse {
+    /// The port name associated with this request.
+    pub port_name: String,
+    /// The response content (AI message or error text).
+    pub content: String,
+    /// Whether this response represents an error.
+    pub is_error: bool,
+}
+
+/// Channel resource for AI chat communication.
+#[derive(Resource)]
+pub struct AiChannel {
+    /// Sender for AI responses from async tasks back to the Bevy world.
+    pub tx: std::sync::Mutex<std::sync::mpsc::Sender<AiResponse>>,
+    /// Receiver for AI responses in Bevy systems.
+    pub rx: std::sync::Mutex<std::sync::mpsc::Receiver<AiResponse>>,
+}
+
+impl AiChannel {
+    /// Initializes the AI channel.
+    #[must_use]
+    pub fn init() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        Self {
+            tx: std::sync::Mutex::new(tx),
+            rx: std::sync::Mutex::new(rx),
+        }
+    }
+}
+
+impl Default for AiChannel {
+    fn default() -> Self {
+        Self::init()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,5 +88,19 @@ mod tests {
     fn test_serial_name_channel_default() {
         let channel = SerialNameChannel::default();
         assert!(channel.tx_world2_serial.receiver_count() >= 1);
+    }
+
+    #[test]
+    fn test_ai_channel_creation() {
+        let channel = AiChannel::init();
+        let response = AiResponse {
+            port_name: "COM1".to_string(),
+            content: "Hello".to_string(),
+            is_error: false,
+        };
+        assert!(channel.tx.lock().unwrap().send(response).is_ok());
+        let received = channel.rx.lock().unwrap().recv();
+        assert!(received.is_ok());
+        assert_eq!(received.unwrap().port_name, "COM1");
     }
 }
