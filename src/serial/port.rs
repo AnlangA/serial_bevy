@@ -3,6 +3,7 @@
 //! This module provides serial port types, settings, and state management.
 
 use log::{error, info};
+use std::collections::VecDeque;
 use std::fmt;
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Read, Write};
@@ -98,20 +99,21 @@ impl Serial {
 
     /// Returns true if the port is open.
     #[must_use]
-    pub fn is_open(&mut self) -> bool {
-        self.data.state().is_open()
+    pub fn is_open(&self) -> bool {
+        self.data.state.is_open()
     }
 
     /// Closes the serial port.
     pub fn close(&mut self) {
         self.data.state().close();
+        self.data.flush_file_writer();
         self.thread_handle = None;
     }
 
     /// Returns true if the port is closed.
     #[must_use]
-    pub fn is_close(&mut self) -> bool {
-        self.data.state().is_close()
+    pub fn is_close(&self) -> bool {
+        self.data.state.is_close()
     }
 
     /// Sets the port to error state.
@@ -121,8 +123,8 @@ impl Serial {
 
     /// Returns true if the port is in error state.
     #[must_use]
-    pub fn is_error(&mut self) -> bool {
-        self.data.state().is_error()
+    pub fn is_error(&self) -> bool {
+        self.data.state.is_error()
     }
 
     /// Gets a mutable reference to the LLM configuration.
@@ -375,6 +377,10 @@ pub struct PortData {
     /// When false (default): raw data format without timestamps.
     /// When true: adds [timestamp source] prefix to each line.
     show_timestamp: bool,
+    /// In-memory display buffer to avoid reading disk every frame.
+    display_buffer: VecDeque<String>,
+    /// Persistent file writer for logging.
+    file_writer: Option<BufWriter<std::fs::File>>,
 }
 
 impl Default for PortData {
@@ -398,6 +404,8 @@ impl PortData {
             utf8_buffer: Vec::new(),
             console_mode: false,
             show_timestamp: false,
+            display_buffer: VecDeque::new(),
+            file_writer: None,
         }
     }
 
@@ -421,13 +429,19 @@ impl PortData {
 
         let path = format!("logs/{sanitized}");
 
-        if let Err(e) = OpenOptions::new()
+        match OpenOptions::new()
             .create(true)
             .read(true)
             .append(true)
             .open(&path)
         {
-            error!("Failed to create source file {path}: {e}");
+            Ok(file) => {
+                self.file_writer = Some(BufWriter::new(file));
+            }
+            Err(e) => {
+                error!("Failed to create source file {path}: {e}");
+                self.file_writer = None;
+            }
         }
 
         self.source_file.file.push(path);
@@ -440,47 +454,48 @@ impl PortData {
         self.source_file.file.len()
     }
 
-    /// Writes data to the last source file.
+    /// Writes data to the last source file and memory display buffer.
     /// Format depends on show_timestamp setting:
     /// - If show_timestamp is true: writes with [timestamp source] prefix
     /// - If show_timestamp is false: writes raw data without prefix
     pub fn write_source_file(&mut self, data: &[u8], source: DataSource) {
-        let Some(file_path) = self.source_file.file.last() else {
-            return;
+        let line = if self.show_timestamp {
+            let time = chrono::Local::now()
+                .format("%Y%m%d %H:%M:%S.%3f")
+                .to_string();
+            format!("\n[{time} {source}]{}" , String::from_utf8_lossy(data))
+        } else {
+            String::from_utf8_lossy(data).into_owned()
         };
 
-        if let Ok(file) = OpenOptions::new().append(true).open(file_path) {
-            let mut writer = BufWriter::new(file);
+        // Write to persistent file writer
+        if let Some(writer) = &mut self.file_writer {
+            let _ = writer.write_all(line.as_bytes());
+            let _ = writer.flush();
+        }
 
-            if self.show_timestamp {
-                // Timestamped mode: write with timestamp prefix
-                let time = chrono::Local::now()
-                    .format("%Y%m%d %H:%M:%S.%3f")
-                    .to_string();
-                let head = format!("[{time} {source}]");
-
-                let mut combined = Vec::new();
-                combined.extend_from_slice(head.as_bytes());
-                combined.extend_from_slice(data);
-                let _ = writer.write_all(b"\n");
-                let _ = writer.write_all(&combined);
-                let _ = writer.flush();
-            } else {
-                // Raw mode: write raw data without timestamp
-                let _ = writer.write_all(data);
-                let _ = writer.flush();
-            }
+        // Push to memory display buffer
+        self.display_buffer.push_back(line);
+        while self.display_buffer.len() > 5000 {
+            self.display_buffer.pop_front();
         }
     }
 
-    /// Reads the current source file contents as raw bytes.
+    /// Reads the current display data from memory buffer.
     #[must_use]
-    pub fn read_current_source_file_bytes(&mut self) -> Vec<u8> {
-        self.source_file
-            .file
-            .last()
-            .map(|path| std::fs::read(path).unwrap_or_default())
-            .unwrap_or_default()
+    pub fn read_current_source_file_bytes(&self) -> Vec<u8> {
+        let mut result = String::new();
+        for line in &self.display_buffer {
+            result.push_str(line);
+        }
+        result.into_bytes()
+    }
+
+    /// Flushes the persistent file writer.
+    pub fn flush_file_writer(&mut self) {
+        if let Some(writer) = &mut self.file_writer {
+            let _ = writer.flush();
+        }
     }
 
     /// Reads a specific source file by index.

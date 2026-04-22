@@ -17,7 +17,7 @@ egui = { version = "0.33", features = ["persistence"] }
 
 # Async runtime and serial communication
 tokio = { version = "1.48", features = ["full"] }
-tokio-serial = "5.4"
+tokio-serial = "5.4.5"
 
 # Logging
 env_logger = "0.11"
@@ -38,7 +38,7 @@ ron = "0.8"
 egui_sgr = "0.1"
 
 # AI integration
-zhipuai-rs = "0.2"
+zhipuai-rs = "0.2.4"
 
 [dev-dependencies]
 # Testing utilities

@@ -241,8 +241,8 @@ pub fn draw_serial_context_label_ui(
 }
 
 /// Draws error windows for ports in error state.
-pub fn draw_serial_context_ui(mut serials: Query<&mut Serials>, mut context: EguiContexts) {
-    let Ok(mut serials) = serials.single_mut() else {
+pub fn draw_serial_context_ui(serials: Query<&Serials>, mut context: EguiContexts) {
+    let Ok(serials) = serials.single() else {
         return;
     };
 
@@ -250,7 +250,7 @@ pub fn draw_serial_context_ui(mut serials: Query<&mut Serials>, mut context: Egu
         return;
     };
 
-    for serial in &mut serials.serial {
+    for serial in &serials.serial {
         let Ok(mut serial) = serial.lock() else {
             continue;
         };
@@ -273,10 +273,18 @@ pub fn draw_serial_context_ui(mut serials: Query<&mut Serials>, mut context: Egu
 pub fn data_type_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     ui.add(egui::Label::new(egui::RichText::new("Data Type:")));
     egui::ComboBox::from_id_salt(format!("{}_datatype", serial.set.port_name))
-        .width(60f32)
+        .width(90f32)
         .selected_text(serial.data().data_type().as_str_en())
         .show_ui(ui, |ui| {
-            for data_type in [DataType::Hex, DataType::Utf8] {
+            for data_type in [
+                DataType::Hex,
+                DataType::Utf8,
+                DataType::Ascii,
+                DataType::Binary,
+                DataType::Utf16,
+                DataType::Utf32,
+                DataType::Gbk,
+            ] {
                 ui.selectable_value(serial.data().data_type(), data_type, data_type.as_str_en());
             }
         });

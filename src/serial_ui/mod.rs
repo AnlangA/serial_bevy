@@ -508,27 +508,28 @@ fn serial_ui(
 
 /// System: send cached data if newline present (user pressed Enter).
 fn send_cache_data(mut serials: Query<&mut Serials>) {
-    for mut serials in &mut serials {
-        for serial in &mut serials.serial {
-            let Ok(mut serial) = serial.lock() else {
-                continue;
-            };
-            if serial.is_open() {
-                let cache = serial.data().get_cache_data().get_current_data().clone();
-                if cache.contains('\r') || cache.contains('\n') {
-                    let data = if *serial.data().line_feed() {
-                        cache.clone()
-                    } else {
-                        cache.replace(['\r', '\n'], "")
-                    };
-                    let history_data = data.replace(['\r', '\n'], "");
-                    serial
-                        .data()
-                        .get_cache_data()
-                        .add_history_data(history_data);
-                    serial.data().send_data(data);
-                    serial.data().get_cache_data().clear_current_data();
-                }
+    let Ok(mut serials) = serials.single_mut() else {
+        return;
+    };
+    for serial in &mut serials.serial {
+        let Ok(mut serial) = serial.lock() else {
+            continue;
+        };
+        if serial.is_open() {
+            let cache = serial.data().get_cache_data().get_current_data().clone();
+            if cache.contains('\r') || cache.contains('\n') {
+                let data = if *serial.data().line_feed() {
+                    cache.clone()
+                } else {
+                    cache.replace(['\r', '\n'], "")
+                };
+                let history_data = data.replace(['\r', '\n'], "");
+                serial
+                    .data()
+                    .get_cache_data()
+                    .add_history_data(history_data);
+                serial.data().send_data(data);
+                serial.data().get_cache_data().clear_current_data();
             }
         }
     }
@@ -539,7 +540,15 @@ fn history_data_checkout(
     mut serials: Query<&mut Serials>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     selected: ResMut<Selected>,
+    mut contexts: EguiContexts,
 ) {
+    // Skip if egui is capturing keyboard input (e.g. user is typing in a text field)
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_keyboard_input() {
+            return;
+        }
+    }
+
     let Ok(mut serials) = serials.single_mut() else {
         return;
     };
