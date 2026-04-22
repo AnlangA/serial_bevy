@@ -6,7 +6,7 @@ use crate::serial::Serials;
 use crate::serial::port::{COMMON_BAUD_RATES, DataType, PortChannelData, Serial, TEXT_MODELS};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
-use log::info;
+
 use std::sync::MutexGuard;
 use tokio_serial::{DataBits, FlowControl, Parity, StopBits};
 
@@ -174,16 +174,16 @@ pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, selected:
     if serial.is_close() {
         if ui.button("Open").clicked() {
             selected.select(&serial.set.port_name);
-            info!("Opening port {}", serial.set.port_name);
+            debug!("Opening port {}", serial.set.port_name);
 
             // Clone settings before borrowing tx_channel to avoid borrow conflict
             let settings = serial.set.clone();
             if let Some(tx) = serial.tx_channel() {
                 match tx.send(PortChannelData::PortOpen(settings)) {
                     Ok(_) => {
-                        info!("Sent open port message");
+                        debug!("Sent open port message");
                     }
-                    Err(e) => info!("Failed to open port: {e}"),
+                    Err(e) => warn!("Failed to open port: {e}"),
                 }
                 let _ = std::fs::create_dir_all("logs");
                 let time = chrono::Local::now().format("%Y%m%d_%H%M%S_%f").to_string();
@@ -195,15 +195,15 @@ pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, selected:
         }
     } else if serial.is_open() && ui.button("Close").clicked() {
         selected.select(&serial.set.port_name);
-        info!("Closing port {}", serial.set.port_name);
+        debug!("Closing port {}", serial.set.port_name);
         let port_name = serial.set.port_name.clone();
 
         if let Some(tx) = serial.tx_channel() {
             match tx.send(PortChannelData::PortClose(port_name)) {
                 Ok(_) => {
-                    info!("Sent close port message");
+                    debug!("Sent close port message");
                 }
-                Err(e) => info!("Failed to close port: {e}"),
+                Err(e) => warn!("Failed to close port: {e}"),
             }
         }
     }
@@ -344,10 +344,9 @@ pub fn draw_llm_key_input(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>
     ui.horizontal(|ui| {
         ui.label("Key:");
         ui.add(
-            egui::TextEdit::singleline(&mut serial.llm().key
-            )
-            .password(true)
-            .desired_width(120.0),
+            egui::TextEdit::singleline(&mut serial.llm().key)
+                .password(true)
+                .desired_width(120.0),
         );
     });
 }
@@ -361,7 +360,11 @@ pub fn draw_llm_coding_plan_toggle(ui: &mut egui::Ui, serial: &mut MutexGuard<'_
         } else {
             "Coding: OFF"
         };
-        if ui.button(button_text).on_hover_text("Toggle coding plan mode").clicked() {
+        if ui
+            .button(button_text)
+            .on_hover_text("Toggle coding plan mode")
+            .clicked()
+        {
             serial.llm().with_coding_plan = !with_coding;
         }
     });
@@ -420,19 +423,11 @@ pub fn draw_llm_conversation(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Seri
                         // Message header: role + timestamp
                         ui.horizontal(|ui| {
                             if is_user {
-                                ui.label(
-                                    egui::RichText::new(&msg.timestamp).weak().small(),
-                                );
-                                ui.label(
-                                    egui::RichText::new(role_text).strong().color(role_color),
-                                );
+                                ui.label(egui::RichText::new(&msg.timestamp).weak().small());
+                                ui.label(egui::RichText::new(role_text).strong().color(role_color));
                             } else {
-                                ui.label(
-                                    egui::RichText::new(role_text).strong().color(role_color),
-                                );
-                                ui.label(
-                                    egui::RichText::new(&msg.timestamp).weak().small(),
-                                );
+                                ui.label(egui::RichText::new(role_text).strong().color(role_color));
+                                ui.label(egui::RichText::new(&msg.timestamp).weak().small());
                             }
                         });
 
@@ -442,7 +437,8 @@ pub fn draw_llm_conversation(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Seri
                             .corner_radius(10.0)
                             .inner_margin(egui::Margin::symmetric(12, 10));
                         frame.show(ui, |ui| {
-                            ui.set_max_width(280.0);
+                            let max_w = ui.available_width().min(280.0);
+                            ui.set_max_width(max_w);
                             render_message_content(ui, &msg.content, text_color, &visuals);
                         });
                     },
@@ -453,8 +449,7 @@ pub fn draw_llm_conversation(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Seri
 
             if serial.llm().is_processing {
                 ui.with_layout(
-                    egui::Layout::top_down(egui::Align::LEFT)
-                        .with_cross_align(egui::Align::LEFT),
+                    egui::Layout::top_down(egui::Align::LEFT).with_cross_align(egui::Align::LEFT),
                     |ui| {
                         ui.horizontal(|ui| {
                             ui.spinner();
@@ -485,7 +480,10 @@ fn render_message_content(
             // Normal text
             let trimmed = part.trim();
             if !trimmed.is_empty() {
-                ui.label(egui::RichText::new(part).color(default_color).size(14.0));
+                ui.add(
+                    egui::Label::new(egui::RichText::new(part).color(default_color).size(14.0))
+                        .wrap_mode(egui::TextWrapMode::Wrap),
+                );
             }
         } else {
             // Code block
@@ -505,12 +503,16 @@ fn render_message_content(
                 .corner_radius(6.0)
                 .inner_margin(egui::Margin::same(8))
                 .show(ui, |ui| {
-                    ui.set_max_width(250.0);
-                    ui.label(
-                        egui::RichText::new(code.trim())
-                            .monospace()
-                            .color(egui::Color32::from_rgb(220, 220, 220))
-                            .size(12.0),
+                    let max_w = ui.available_width().min(250.0);
+                    ui.set_max_width(max_w);
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(code.trim())
+                                .monospace()
+                                .color(egui::Color32::from_rgb(220, 220, 220))
+                                .size(12.0),
+                        )
+                        .wrap_mode(egui::TextWrapMode::Wrap),
                     );
                 });
         }

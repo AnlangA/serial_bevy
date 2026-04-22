@@ -177,7 +177,7 @@ fn init_serial_components(mut commands: Commands) {
 fn spawn_port_discovery(channel: Res<SerialNameChannel>, runtime: Res<Runtime>) {
     let tx = channel.tx_world2_serial.clone();
     runtime.spawn(async move {
-        info!(
+        debug!(
             "Starting port discovery task. Available ports: {:?}",
             available_ports()
         );
@@ -202,7 +202,7 @@ fn discover_usb_ports() -> Vec<String> {
             })
             .collect(),
         Err(e) => {
-            info!("Error listing ports: {e}");
+            debug!("Error listing ports: {e}");
             Vec::new()
         }
     }
@@ -350,7 +350,7 @@ fn spawn_read_thread(
             tokio::select! {
                 result = rx_shutdown.recv() => {
                     if let Ok(PortChannelData::PortClose(name)) = result {
-                        info!("Closing serial port read thread: {name}");
+                        debug!("Closing serial port read thread: {name}");
                         break;
                     }
                 }
@@ -363,7 +363,7 @@ fn spawn_read_thread(
                             if let Err(e) = tx1_read.send(PortChannelData::PortRead(data.clone())) {
                                 error!("Failed to send read data: {e}");
                             } else {
-                                info!("{} read: {:?}", port_name, data.data);
+                                debug!("{} read: {:?}", port_name, data.data);
                             }
                         }
                         Ok(_) => {
@@ -392,14 +392,14 @@ async fn handle_write_thread(
         if let Ok(data) = rx.recv().await {
             match data {
                 PortChannelData::PortWrite(data) => {
-                    info!("{} write: {:?}", port_name, data.data);
+                    debug!("{} write: {:?}", port_name, data.data);
                     if write.write_all(&data.data).await.is_err() {
                         error!("{port_name} write error");
                         break;
                     }
                 }
                 PortChannelData::PortClose(name) => {
-                    info!("Closing serial port write thread: {name}");
+                    debug!("Closing serial port write thread: {name}");
                     let _ = tx1.send(PortChannelData::PortState(PortState::Close));
                     break;
                 }
@@ -628,8 +628,13 @@ fn process_ai_requests(
             continue;
         };
 
+        let port_name = serial.set.port_name.clone();
         let llm = serial.llm();
         if !llm.enable || !llm.is_processing || llm.key.is_empty() {
+            continue;
+        }
+        // Prevent spawning duplicate requests every frame while waiting for response
+        if llm.request_in_flight {
             continue;
         }
 
@@ -638,8 +643,6 @@ fn process_ai_requests(
         let model = llm.model.clone();
         let key = llm.key.clone();
         let with_coding_plan = llm.with_coding_plan;
-        let port_name = serial.set.port_name.clone();
-        let tx = ai_channel.tx.lock().expect("AI channel tx poisoned").clone();
 
         // Check if the last message is from user (we need to respond)
         let should_send = messages.last().map(|m| m.role == "user").unwrap_or(false);
@@ -647,14 +650,17 @@ fn process_ai_requests(
             continue;
         }
 
+        // Mark request as dispatched so we don't spawn again next frame
+        llm.request_in_flight = true;
+        let tx = ai_channel
+            .tx
+            .lock()
+            .expect("AI channel tx poisoned")
+            .clone();
+
         // Spawn async task
         runtime.spawn(async move {
-            let result = send_ai_chat(&model,
-                key,
-                with_coding_plan,
-                messages,
-            )
-            .await;
+            let result = send_ai_chat(&model, key, with_coding_plan, messages).await;
 
             match result {
                 Ok(content) => {
@@ -677,15 +683,17 @@ fn process_ai_requests(
 }
 
 /// System: receives AI chat responses and updates serial state.
-fn receive_ai_responses(
-    mut serials: Query<&mut Serials>,
-    ai_channel: Res<AiChannel>,
-) {
+fn receive_ai_responses(mut serials: Query<&mut Serials>, ai_channel: Res<AiChannel>) {
     let Ok(mut serials) = serials.single_mut() else {
         return;
     };
 
-    while let Ok(response) = ai_channel.rx.lock().expect("AI channel rx poisoned").try_recv() {
+    while let Ok(response) = ai_channel
+        .rx
+        .lock()
+        .expect("AI channel rx poisoned")
+        .try_recv()
+    {
         for serial in &mut serials.serial {
             let Ok(mut serial) = serial.lock() else {
                 continue;
@@ -696,9 +704,12 @@ fn receive_ai_responses(
             }
 
             serial.llm().is_processing = false;
+            serial.llm().request_in_flight = false;
 
             if response.is_error {
-                serial.llm().add_assistant_message(&format!("Error: {}", response.content));
+                serial
+                    .llm()
+                    .add_assistant_message(&format!("Error: {}", response.content));
             } else {
                 serial.llm().add_assistant_message(&response.content);
             }

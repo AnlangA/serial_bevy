@@ -122,9 +122,10 @@ fn load_config_from_disk(ctx: &egui::Context) {
                 let mut widths = widths;
                 widths.clamp();
                 ctx.memory_mut(|mem| {
-                    mem.data.insert_persisted(egui::Id::new(PANEL_WIDTHS_ID), widths);
+                    mem.data
+                        .insert_persisted(egui::Id::new(PANEL_WIDTHS_ID), widths);
                 });
-                log::info!("[serial_ui] Loaded panel widths from config file");
+                log::debug!("[serial_ui] Loaded panel widths from config file");
             }
             Err(e) => {
                 log::warn!("[serial_ui] Failed to parse config file: {e}, using defaults");
@@ -135,13 +136,18 @@ fn load_config_from_disk(ctx: &egui::Context) {
 
 /// Save configuration from egui memory to disk file on exit.
 fn save_config_to_disk(ctx: &egui::Context) {
-    log::info!("[serial_ui] Saving configuration to disk...");
+    log::debug!("[serial_ui] Saving configuration to disk...");
     let widths = ctx.memory_mut(|mem| {
-        mem.data.get_persisted::<PanelWidths>(egui::Id::new(PANEL_WIDTHS_ID))
+        mem.data
+            .get_persisted::<PanelWidths>(egui::Id::new(PANEL_WIDTHS_ID))
             .unwrap_or_default()
     });
-    
-    log::info!("[serial_ui] Panel widths to save: left={}, right={}", widths.left_width, widths.right_width);
+
+    log::debug!(
+        "[serial_ui] Panel widths to save: left={}, right={}",
+        widths.left_width,
+        widths.right_width
+    );
 
     // Ensure config directory exists
     if let Err(e) = std::fs::create_dir_all("config") {
@@ -154,7 +160,7 @@ fn save_config_to_disk(ctx: &egui::Context) {
             if let Err(e) = std::fs::write(CONFIG_FILE, data) {
                 eprintln!("[serial_ui] Failed to write config file: {e}");
             } else {
-                log::info!("[serial_ui] Saved panel widths to config file");
+                log::debug!("[serial_ui] Saved panel widths to config file");
             }
         }
         Err(e) => {
@@ -165,13 +171,10 @@ fn save_config_to_disk(ctx: &egui::Context) {
 
 /// System: save configuration when app is exiting.
 /// Uses Last schedule to ensure it runs even during app shutdown.
-fn save_config_on_exit(
-    mut contexts: EguiContexts,
-    mut exit_events: MessageReader<AppExit>,
-) {
+fn save_config_on_exit(mut contexts: EguiContexts, mut exit_events: MessageReader<AppExit>) {
     if !exit_events.is_empty() {
         exit_events.clear();
-        log::info!("[serial_ui] App exit detected, saving configuration...");
+        log::debug!("[serial_ui] App exit detected, saving configuration...");
         if let Ok(ctx) = contexts.ctx_mut() {
             save_config_to_disk(&ctx);
         } else {
@@ -199,7 +202,8 @@ fn load_config_and_sync(
 
     // Sync resource from egui memory
     let widths = ctx.memory_mut(|mem| {
-        mem.data.get_persisted::<PanelWidths>(egui::Id::new(PANEL_WIDTHS_ID))
+        mem.data
+            .get_persisted::<PanelWidths>(egui::Id::new(PANEL_WIDTHS_ID))
             .unwrap_or_default()
     });
 
@@ -221,11 +225,11 @@ impl Plugin for SerialUiPlugin {
             .insert_resource(Selected::default())
             .add_systems(Startup, setup_camera_system)
             .add_systems(Startup, init_panel_widths)
-            .add_systems(Last, save_config_on_exit)  // Use Last schedule for exit handling
+            .add_systems(Last, save_config_on_exit) // Use Last schedule for exit handling
             .add_systems(
                 EguiPrimaryContextPass,
                 (
-                    load_config_and_sync,  // Load from disk and sync resource
+                    load_config_and_sync,   // Load from disk and sync resource
                     serial_ui,              // main UI layout
                     draw_serial_context_ui, // error popup windows
                     send_cache_data,        // auto-send on newline
@@ -298,10 +302,9 @@ fn serial_ui(
 
     // Update egui memory with new left width
     ctx.memory_mut(|mem| {
-        let stored = mem.data.get_persisted_mut_or_insert_with(
-            egui::Id::new(PANEL_WIDTHS_ID),
-            PanelWidths::default,
-        );
+        let stored = mem
+            .data
+            .get_persisted_mut_or_insert_with(egui::Id::new(PANEL_WIDTHS_ID), PanelWidths::default);
         stored.left_width = panel_widths.left_width;
     });
 
@@ -495,11 +498,18 @@ fn serial_ui(
                                     .strong()
                                     .color(egui::Color32::from_rgb(40, 40, 160)),
                             );
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button("Clear").on_hover_text("Clear conversation history").clicked() {
-                                    serial.llm().clear_messages();
-                                }
-                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui
+                                        .button("Clear")
+                                        .on_hover_text("Clear conversation history")
+                                        .clicked()
+                                    {
+                                        serial.llm().clear_messages();
+                                    }
+                                },
+                            );
                         });
                         ui.separator();
                         draw_llm_model_selector(ui, &mut serial);

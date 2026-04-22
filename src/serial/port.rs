@@ -2,7 +2,7 @@
 //!
 //! This module provides serial port types, settings, and state management.
 
-use log::{error, info};
+use log::{debug, error};
 use std::collections::VecDeque;
 use std::fmt;
 use std::fs::OpenOptions;
@@ -262,7 +262,7 @@ pub async fn open_port(settings: &PortSettings) -> Result<SerialStream, SerialBe
         .timeout(settings.timeout)
         .open_native_async()
         .inspect(|_stream| {
-            info!("Successfully opened serial port: {}", settings.port_name);
+            debug!("Successfully opened serial port: {}", settings.port_name);
         })
         .map_err(|e| {
             error!("Failed to open serial port {}: {}", settings.port_name, e);
@@ -463,7 +463,7 @@ impl PortData {
             let time = chrono::Local::now()
                 .format("%Y%m%d %H:%M:%S.%3f")
                 .to_string();
-            format!("\n[{time} {source}]{}" , String::from_utf8_lossy(data))
+            format!("\n[{time} {source}]{}", String::from_utf8_lossy(data))
         } else {
             String::from_utf8_lossy(data).into_owned()
         };
@@ -950,8 +950,11 @@ pub struct LlmConfig {
     pub messages: Vec<LlmMessage>,
     /// Current user input buffer.
     pub input_buffer: String,
-    /// Whether an AI request is in flight.
+    /// Whether an AI request is pending (user clicked send).
     pub is_processing: bool,
+    /// Whether the request has already been dispatched to async runtime.
+    /// Prevents spawning duplicate requests every frame.
+    pub request_in_flight: bool,
     /// Temperature for generation (0.0-1.0).
     pub temperature: f32,
     /// Top-p for generation (0.0-1.0).
@@ -976,6 +979,7 @@ impl LlmConfig {
             messages: Vec::new(),
             input_buffer: String::new(),
             is_processing: false,
+            request_in_flight: false,
             temperature: 0.7,
             top_p: 0.9,
         }
