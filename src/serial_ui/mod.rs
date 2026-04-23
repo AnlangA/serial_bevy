@@ -59,13 +59,13 @@ fn bytes_to_str_with_ansi(data: &[u8]) -> String {
     result
 }
 use ui::{
-    INPUT_PANEL_HEIGHT, Selected, console_mode_ui, data_line_feed_ui, data_type_ui,
-    draw_baud_rate_selector, draw_data_bits_selector, draw_flow_control_selector,
-    draw_llm_coding_plan_toggle, draw_llm_conversation, draw_llm_input_area, draw_llm_key_input,
-    draw_llm_model_selector, draw_parity_selector, draw_select_serial_ui,
-    draw_serial_context_label_ui, draw_serial_context_ui, draw_serial_input_area,
-    draw_serial_setting_ui, draw_sidebar_section, draw_stop_bits_selector, draw_timeout_selector,
-    llm_ui, submit_serial_input, timestamp_ui,
+    INPUT_PANEL_HEIGHT, INPUT_TOOLBAR_HEIGHT, MarkdownViewerCache, Selected, console_mode_ui,
+    data_line_feed_ui, data_type_ui, draw_baud_rate_selector, draw_data_bits_selector,
+    draw_flow_control_selector, draw_llm_coding_plan_toggle, draw_llm_conversation,
+    draw_llm_input_area, draw_llm_key_input, draw_llm_model_selector, draw_parity_selector,
+    draw_select_serial_ui, draw_serial_context_label_ui, draw_serial_context_ui,
+    draw_serial_input_area, draw_serial_setting_ui, draw_sidebar_section, draw_stop_bits_selector,
+    draw_timeout_selector, llm_ui, submit_serial_input, timestamp_ui,
 };
 
 /// Configuration file path for app persistence.
@@ -186,6 +186,7 @@ impl Plugin for SerialUiPlugin {
         app.add_plugins(EguiPlugin::default())
             .insert_resource(ClearColor(Color::srgb(0.96875, 0.96875, 0.96875)))
             .insert_resource(Selected::default())
+            .insert_resource(MarkdownViewerCache::default())
             .add_systems(Startup, setup_camera_system)
             .add_systems(Startup, init_panel_widths)
             .add_systems(Last, save_config_on_exit) // Use Last schedule for exit handling
@@ -208,6 +209,7 @@ fn serial_ui(
     mut serials: Query<&mut Serials>,
     mut selected: ResMut<Selected>,
     mut panel_widths: ResMut<PanelWidths>,
+    mut markdown_cache: ResMut<MarkdownViewerCache>,
 ) {
     let Ok(mut serials_data) = serials.single_mut() else {
         return;
@@ -405,13 +407,17 @@ fn serial_ui(
                     };
                     if selected.is_selected(&serial.set.port_name) {
                         // Control buttons at top of input area
-                        ui.horizontal(|ui| {
-                            data_type_ui(ui, &mut serial);
-                            data_line_feed_ui(ui, &mut serial);
-                            timestamp_ui(ui, &mut serial);
-                            console_mode_ui(ui, &mut serial);
-                            llm_ui(ui, &mut serial);
-                        });
+                        ui.allocate_ui_with_layout(
+                            egui::Vec2::new(ui.available_width(), INPUT_TOOLBAR_HEIGHT),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                data_type_ui(ui, &mut serial);
+                                data_line_feed_ui(ui, &mut serial);
+                                timestamp_ui(ui, &mut serial);
+                                console_mode_ui(ui, &mut serial);
+                                llm_ui(ui, &mut serial);
+                            },
+                        );
 
                         // Text input area with improved bottom margin
                         draw_serial_input_area(ui, &mut serial);
@@ -479,7 +485,7 @@ fn serial_ui(
                             ),
                             egui::Layout::top_down(egui::Align::LEFT),
                             |ui| {
-                                draw_llm_conversation(ui, &mut serial);
+                                draw_llm_conversation(ui, &mut serial, &mut markdown_cache);
                             },
                         );
                         ui.separator();
@@ -487,6 +493,11 @@ fn serial_ui(
                             egui::Vec2::new(ui.available_width(), llm_input_height),
                             egui::Layout::top_down(egui::Align::LEFT),
                             |ui| {
+                                ui.allocate_ui_with_layout(
+                                    egui::Vec2::new(ui.available_width(), INPUT_TOOLBAR_HEIGHT),
+                                    egui::Layout::left_to_right(egui::Align::Center),
+                                    |_ui| {},
+                                );
                                 draw_llm_input_area(ui, &mut serial, &mut panel_widths);
                             },
                         );

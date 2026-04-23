@@ -6,6 +6,7 @@ use crate::serial::Serials;
 use crate::serial::port::{COMMON_BAUD_RATES, DataType, PortChannelData, Serial, TEXT_MODELS};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 use std::sync::MutexGuard;
 use tokio_serial::{DataBits, FlowControl, Parity, StopBits};
@@ -16,7 +17,13 @@ pub const INPUT_TEXT_EDIT_HEIGHT: f32 = 84.0;
 /// Shared bottom panel height so serial and LLM input regions stay aligned.
 pub const INPUT_PANEL_HEIGHT: f32 = 180.0;
 
+/// Shared top toolbar height for bottom input regions.
+pub const INPUT_TOOLBAR_HEIGHT: f32 = 28.0;
+
 const SIDEBAR_LABEL_WIDTH: f32 = 74.0;
+
+#[derive(Resource, Default)]
+pub struct MarkdownViewerCache(pub CommonMarkCache);
 
 fn sidebar_row<R>(
     ui: &mut egui::Ui,
@@ -414,7 +421,11 @@ pub fn draw_llm_coding_plan_toggle(ui: &mut egui::Ui, config: &mut crate::serial
 }
 
 /// Draws the conversation history for LLM with bubble chat styling.
-pub fn draw_llm_conversation(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+pub fn draw_llm_conversation(
+    ui: &mut egui::Ui,
+    serial: &mut MutexGuard<'_, Serial>,
+    markdown_cache: &mut MarkdownViewerCache,
+) {
     let visuals = ui.visuals().clone();
     let available_height = ui.available_height().max(120.0);
 
@@ -482,7 +493,12 @@ pub fn draw_llm_conversation(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Seri
                         frame.show(ui, |ui| {
                             let max_w = ui.available_width().min(280.0);
                             ui.set_max_width(max_w);
-                            render_message_content(ui, &msg.content, text_color, &visuals);
+                            render_message_content(
+                                ui,
+                                &msg.content,
+                                text_color,
+                                &mut markdown_cache.0,
+                            );
                         });
                     },
                 );
@@ -514,52 +530,27 @@ fn render_message_content(
     ui: &mut egui::Ui,
     content: &str,
     default_color: egui::Color32,
-    visuals: &egui::Visuals,
+    markdown_cache: &mut CommonMarkCache,
 ) {
-    let parts: Vec<&str> = content.split("```").collect();
-    for (i, part) in parts.iter().enumerate() {
-        let part = *part;
-        if i % 2 == 0 {
-            // Normal text
-            let trimmed = part.trim();
-            if !trimmed.is_empty() {
-                ui.add(
-                    egui::Label::new(egui::RichText::new(part).color(default_color).size(14.0))
-                        .wrap_mode(egui::TextWrapMode::Wrap),
-                );
-            }
-        } else {
-            // Code block
-            let mut lines = part.lines();
-            let first_line = lines.next().unwrap_or("");
-            let _lang = first_line.trim();
-            let code: String = lines.collect::<Vec<_>>().join("\n");
-
-            let code_bg = if visuals.dark_mode {
-                egui::Color32::from_rgb(20, 20, 25)
-            } else {
-                egui::Color32::from_rgb(40, 40, 45)
-            };
-
-            egui::Frame::new()
-                .fill(code_bg)
-                .corner_radius(6.0)
-                .inner_margin(egui::Margin::same(8))
-                .show(ui, |ui| {
-                    let max_w = ui.available_width().min(250.0);
-                    ui.set_max_width(max_w);
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(code.trim())
-                                .monospace()
-                                .color(egui::Color32::from_rgb(220, 220, 220))
-                                .size(12.0),
-                        )
-                        .wrap_mode(egui::TextWrapMode::Wrap),
-                    );
-                });
-        }
+    if content.trim().is_empty() {
+        return;
     }
+
+    ui.scope(|ui| {
+        let mut style = ui.style().as_ref().clone();
+        style.visuals.override_text_color = Some(default_color);
+        style.visuals.hyperlink_color = if default_color == egui::Color32::WHITE {
+            egui::Color32::from_rgb(191, 219, 254)
+        } else {
+            egui::Color32::from_rgb(37, 99, 235)
+        };
+        style.url_in_tooltip = true;
+        ui.set_style(style);
+
+        CommonMarkViewer::new()
+            .indentation_spaces(2)
+            .show(ui, markdown_cache, content);
+    });
 }
 
 /// Draws the input area and send button for LLM with multi-line support.

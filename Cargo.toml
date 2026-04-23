@@ -36,6 +36,7 @@ ron = "0.8"
 
 # ANSI color parsing for egui
 egui_sgr = "0.1"
+egui_commonmark = { version = "0.22.0", default-features = false, features = ["pulldown_cmark", "better_syntax_highlighting"] }
 
 # AI integration
 zai-rs = { git = "https://github.com/AnlangA/zai-rs" }
