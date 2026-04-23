@@ -74,7 +74,7 @@ cargo run --release
 - **Parity**（校验位）：错误检查方法
 - **Flow Ctrl**（流控制）：流控制机制
 
-面板宽度会自动保存到 `panel_widths.txt` 文件，下次启动时恢复。
+面板宽度和共享 LLM 设置会自动保存到 `config/app_memory.ron`，下次启动时恢复。
 
 ## 项目结构
 
@@ -87,11 +87,16 @@ serial_bevy/
 │   ├── serial/           # 串口逻辑
 │   │   ├── mod.rs
 │   │   ├── port.rs       # 端口管理
-│   │   ├── data.rs       # 数据处理
-│   │   └── encoding.rs   # 数据编码
+│   │   ├── io.rs         # 异步串口 I/O 系统
+│   │   ├── discovery.rs  # 端口发现运行时
+│   │   └── ...           # 数据、状态、编码、LLM 辅助模块
 │   ├── serial_ui/        # 用户界面
-│   │   ├── mod.rs        # UI 布局
-│   │   └── ui.rs         # UI 组件
+│   │   ├── mod.rs        # UI 插件装配
+│   │   ├── layout.rs     # 主 egui 布局组合
+│   │   ├── config.rs     # 持久化 UI 设置
+│   │   ├── global_llm.rs # 独立 LLM 状态与系统
+│   │   ├── input.rs      # 输入与历史系统
+│   │   └── ui.rs         # 可复用 UI 组件
 │   └── fonts/            # 字体配置
 ├── assets/
 │   ├── fonts/            # 字体文件

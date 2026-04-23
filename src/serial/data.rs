@@ -2,7 +2,7 @@
 //!
 //! This module provides channel-based communication for serial port operations.
 
-use super::port::PortChannelData;
+use super::state::PortChannelData;
 use bevy::prelude::*;
 use tokio::sync::broadcast;
 

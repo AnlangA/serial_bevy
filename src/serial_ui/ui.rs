@@ -2,6 +2,7 @@
 //!
 //! This module provides individual UI components for serial port configuration and control.
 
+use crate::serial::Selected;
 use crate::serial::Serials;
 use crate::serial::port::{COMMON_BAUD_RATES, DataType, PortChannelData, Serial, TEXT_MODELS};
 use bevy::prelude::*;
@@ -49,32 +50,6 @@ pub fn draw_sidebar_section(
         ui.add_space(6.0);
         add_content(ui);
     });
-}
-
-/// Resource for tracking the currently selected serial port.
-#[derive(Resource, Default)]
-pub struct Selected {
-    /// The name of the selected port.
-    selected: String,
-}
-
-impl Selected {
-    /// Returns true if the given port name is selected.
-    #[must_use]
-    pub fn is_selected(&self, port_name: &str) -> bool {
-        self.selected == port_name
-    }
-
-    /// Selects the given port.
-    pub fn select(&mut self, port_name: &str) {
-        self.selected = port_name.to_string();
-    }
-
-    /// Returns the selected port name.
-    #[must_use]
-    pub fn selected(&self) -> &str {
-        &self.selected
-    }
 }
 
 /// Draws the serial port selection dropdown and open/close button for the selected port.
@@ -522,7 +497,8 @@ pub fn draw_llm_conversation(
 }
 
 /// Renders message content with code block highlighting.
-fn render_message_content(
+/// Renders message content with code block highlighting.
+pub(crate) fn render_message_content(
     ui: &mut egui::Ui,
     content: &str,
     default_color: egui::Color32,
@@ -554,6 +530,7 @@ pub fn draw_llm_input_area(
     ui: &mut egui::Ui,
     serial: &mut MutexGuard<'_, Serial>,
     config: &mut crate::serial_ui::PanelWidths,
+    show_key_missing_popup: &mut bool,
 ) {
     let font = egui::FontId::new(18.0, egui::FontFamily::Monospace);
     let can_send = !serial.llm().input_buffer.trim().is_empty() && !serial.llm().is_processing;
@@ -575,7 +552,7 @@ pub fn draw_llm_input_area(
                 )
                 .clicked()
             {
-                submit_llm_input(serial, config);
+                submit_llm_input(serial, config, show_key_missing_popup);
             }
 
             if ui.button("Clear").clicked() {
@@ -676,10 +653,14 @@ pub fn submit_serial_input(serial: &mut Serial) -> bool {
 }
 
 /// Submits the current LLM input if configuration is complete.
-pub fn submit_llm_input(serial: &mut Serial, config: &mut crate::serial_ui::PanelWidths) -> bool {
+pub fn submit_llm_input(
+    serial: &mut Serial,
+    config: &mut crate::serial_ui::PanelWidths,
+    show_key_missing_popup: &mut bool,
+) -> bool {
     if config.llm_key.is_empty() || config.llm_model.is_empty() {
         config.show_settings_panel = true;
-        config.show_key_missing_popup = true;
+        *show_key_missing_popup = true;
         return false;
     }
 
@@ -694,6 +675,7 @@ pub fn submit_llm_input(serial: &mut Serial, config: &mut crate::serial_ui::Pane
 
     serial.llm().add_user_message(&content);
     serial.llm().input_buffer.clear();
+    *serial.llm().enable() = true;
     serial.llm().is_processing = true;
     true
 }
@@ -744,6 +726,8 @@ pub fn timestamp_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::serial::port::Serial;
+    use crate::serial_ui::PanelWidths;
 
     #[test]
     fn test_selected_default() {
@@ -758,5 +742,29 @@ mod tests {
         assert!(selected.is_selected("COM1"));
         assert!(!selected.is_selected("COM2"));
         assert_eq!(selected.selected(), "COM1");
+    }
+
+    #[test]
+    fn test_submit_llm_input_enables_port_llm_and_marks_processing() {
+        let mut serial = Serial::new();
+        serial.llm().input_buffer = "hello".to_string();
+
+        let mut config = PanelWidths {
+            llm_key: "test-key".to_string(),
+            ..Default::default()
+        };
+        let mut show_key_missing_popup = false;
+
+        assert!(submit_llm_input(
+            &mut serial,
+            &mut config,
+            &mut show_key_missing_popup
+        ));
+        assert!(serial.llm().enable);
+        assert!(serial.llm().is_processing);
+        assert_eq!(serial.llm().messages.len(), 1);
+        assert_eq!(serial.llm().messages[0].role, "user");
+        assert_eq!(serial.llm().messages[0].content, "hello");
+        assert!(!show_key_missing_popup);
     }
 }

@@ -74,7 +74,7 @@ Port settings can be adjusted in the left panel:
 - **Parity**: Error checking method
 - **Flow Ctrl**: Flow control mechanism
 
-Panel widths are automatically saved to `panel_widths.txt` and restored on next launch.
+Panel widths and shared LLM settings are automatically saved to `config/app_memory.ron` and restored on next launch.
 
 ## Project Structure
 
@@ -87,11 +87,16 @@ serial_bevy/
 │   ├── serial/           # Serial port logic
 │   │   ├── mod.rs
 │   │   ├── port.rs       # Port management
-│   │   ├── data.rs       # Data handling
-│   │   └── encoding.rs   # Data encoding
+│   │   ├── io.rs         # Async port I/O systems
+│   │   ├── discovery.rs  # Port discovery runtime
+│   │   └── ...           # Data, state, encoding, LLM helpers
 │   ├── serial_ui/        # User interface
-│   │   ├── mod.rs        # UI layout
-│   │   └── ui.rs         # UI components
+│   │   ├── mod.rs        # UI plugin wiring
+│   │   ├── layout.rs     # Main egui layout composition
+│   │   ├── config.rs     # Persisted UI settings
+│   │   ├── global_llm.rs # Standalone LLM state/systems
+│   │   ├── input.rs      # Input/history systems
+│   │   └── ui.rs         # Reusable UI components
 │   └── fonts/            # Font configuration
 ├── assets/
 │   ├── fonts/            # Font files
