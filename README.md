@@ -54,7 +54,7 @@ cargo run --release
 
 1. Select the data type (Hex or UTF-8)
 2. Type your message in the input area
-3. Press Enter to send
+3. Click `Send` or press Enter to send
 4. Use "With LF"/"No LF" button to toggle line feed
 
 ### Viewing Logs
@@ -63,7 +63,7 @@ All communications are automatically logged to the `logs/` directory with timest
 
 ### LLM Features
 
-Click "Enable LLM" to access AI-powered features in the right sidebar (when enabled).
+Click "Enable LLM" to access AI-powered features in the right sidebar (when enabled), then use the input area's `Send` button to submit prompts.
 
 ## Configuration
 

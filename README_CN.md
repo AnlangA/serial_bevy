@@ -54,7 +54,7 @@ cargo run --release
 
 1. 选择数据类型（Hex 或 UTF-8）
 2. 在输入区域输入您的消息
-3. 按 Enter 键发送
+3. 点击 `Send` 或按 Enter 键发送
 4. 使用 "With LF"/"No LF" 按钮切换是否添加换行符
 
 ### 查看日志
@@ -63,7 +63,7 @@ cargo run --release
 
 ### LLM 功能
 
-点击 "Enable LLM" 以访问右侧边栏中的 AI 功能（启用时）。
+点击 "Enable LLM" 以访问右侧边栏中的 AI 功能（启用时），然后使用输入区的 `Send` 按钮发送提问。
 
 ## 配置
 

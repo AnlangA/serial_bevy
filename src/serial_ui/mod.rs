@@ -59,12 +59,13 @@ fn bytes_to_str_with_ansi(data: &[u8]) -> String {
     result
 }
 use ui::{
-    Selected, console_mode_ui, data_line_feed_ui, data_type_ui, draw_baud_rate_selector,
-    draw_data_bits_selector, draw_flow_control_selector, draw_llm_coding_plan_toggle,
-    draw_llm_conversation, draw_llm_input_area, draw_llm_key_input, draw_llm_model_selector,
-    draw_parity_selector, draw_select_serial_ui, draw_serial_context_label_ui,
-    draw_serial_context_ui, draw_serial_setting_ui, draw_stop_bits_selector, draw_timeout_selector,
-    llm_ui, timestamp_ui,
+    INPUT_PANEL_HEIGHT, Selected, console_mode_ui, data_line_feed_ui, data_type_ui,
+    draw_baud_rate_selector, draw_data_bits_selector, draw_flow_control_selector,
+    draw_llm_coding_plan_toggle, draw_llm_conversation, draw_llm_input_area, draw_llm_key_input,
+    draw_llm_model_selector, draw_parity_selector, draw_select_serial_ui,
+    draw_serial_context_label_ui, draw_serial_context_ui, draw_serial_input_area,
+    draw_serial_setting_ui, draw_sidebar_section, draw_stop_bits_selector, draw_timeout_selector,
+    llm_ui, submit_serial_input, timestamp_ui,
 };
 
 /// Configuration file path for app persistence.
@@ -164,10 +165,7 @@ fn init_panel_widths(mut commands: Commands) {
 }
 
 /// System: save configuration directly from resource when app is exiting.
-fn save_config_on_exit(
-    panel_widths: Res<PanelWidths>,
-    mut exit_events: MessageReader<AppExit>,
-) {
+fn save_config_on_exit(panel_widths: Res<PanelWidths>, mut exit_events: MessageReader<AppExit>) {
     if !exit_events.is_empty() {
         exit_events.clear();
         log::debug!("[serial_ui] App exit detected, saving configuration...");
@@ -225,47 +223,56 @@ fn serial_ui(
         .min_width(120.0)
         .max_width(600.0)
         .show(ctx, |ui| {
-            // Top-aligned theme switch and port list (no spacing), settings anchored at bottom via nested bottom_up layout.
-            // Layout strategy:
-            // 1. Render top header (theme switch) flush at top.
-            // 2. Render port list directly beneath.
-            // 3. Separator.
-            // 4. Bottom-up block: settings content pinned to panel bottom.
-            ui.horizontal(|ui| {
-                egui::widgets::global_theme_preference_switch(ui);
-            });
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    draw_select_serial_ui(ui, &mut serials_data, selected.as_mut());
+                    ui.horizontal(|ui| {
+                        egui::widgets::global_theme_preference_switch(ui);
+                    });
+                    ui.add_space(8.0);
+
+                    draw_sidebar_section(ui, "Connection", |ui| {
+                        draw_select_serial_ui(ui, &mut serials_data, selected.as_mut());
+                        ui.add_space(6.0);
+                        draw_serial_setting_ui(ui, selected.as_mut());
+                    });
+
+                    ui.add_space(8.0);
+
+                    draw_sidebar_section(ui, "Serial Settings", |ui| {
+                        let mut drew_selected_serial = false;
+                        for serial in &mut serials_data.serial {
+                            let Ok(mut serial) = serial.lock() else {
+                                continue;
+                            };
+                            if selected.is_selected(&serial.set.port_name) {
+                                drew_selected_serial = true;
+                                draw_baud_rate_selector(ui, &mut serial);
+                                draw_data_bits_selector(ui, &mut serial);
+                                draw_stop_bits_selector(ui, &mut serial);
+                                draw_parity_selector(ui, &mut serial);
+                                draw_flow_control_selector(ui, &mut serial);
+                                draw_timeout_selector(ui, &mut serial);
+                                break;
+                            }
+                        }
+                        if !drew_selected_serial {
+                            ui.label(
+                                egui::RichText::new("Select a port to edit its serial settings.")
+                                    .weak(),
+                            );
+                        }
+                    });
+
+                    ui.add_space(8.0);
+
+                    draw_sidebar_section(ui, "LLM Settings", |ui| {
+                        draw_llm_key_input(ui, &mut panel_widths);
+                        draw_llm_model_selector(ui, &mut panel_widths);
+                        draw_llm_coding_plan_toggle(ui, &mut panel_widths);
+                    });
+                    ui.add_space(8.0);
                 });
-
-            ui.separator();
-
-            // Bottom anchored settings block
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                ui.add_space(20.0);
-                for serial in &mut serials_data.serial {
-                    let Ok(mut serial) = serial.lock() else {
-                        continue;
-                    };
-                    if selected.is_selected(&serial.set.port_name) {
-                        draw_timeout_selector(ui, &mut serial);
-                        draw_flow_control_selector(ui, &mut serial);
-                        draw_parity_selector(ui, &mut serial);
-                        draw_stop_bits_selector(ui, &mut serial);
-                        draw_data_bits_selector(ui, &mut serial);
-                        draw_baud_rate_selector(ui, &mut serial);
-                    }
-                }
-                ui.separator();
-                draw_serial_setting_ui(ui, selected.as_mut());
-                ui.separator();
-                ui.label(egui::RichText::new("LLM Settings").strong());
-                draw_llm_model_selector(ui, &mut panel_widths);
-                draw_llm_key_input(ui, &mut panel_widths);
-                draw_llm_coding_plan_toggle(ui, &mut panel_widths);
-            });
         });
     panel_widths.left_width = left_show.response.rect.width();
 
@@ -284,7 +291,7 @@ fn serial_ui(
 
         // Use remaining vertical space for data receive area
         let available_height = ui.available_height();
-        let input_height = 140.0; // Reserve height for input area (increased for bottom spacing)
+        let input_height = INPUT_PANEL_HEIGHT; // Reserve height for input area and action buttons
         let data_height = (available_height - input_height).max(0.0);
 
         // Data receive area with fixed height
@@ -407,19 +414,10 @@ fn serial_ui(
                         });
 
                         // Text input area with improved bottom margin
-                        let available_height = (ui.available_height() - 40.0).max(20.0); // Adjusted margin for better aesthetics
-                        let font = egui::FontId::new(18.0, egui::FontFamily::Monospace);
-                        ui.add_sized(
-                            [ui.available_width(), available_height],
-                            egui::TextEdit::multiline(
-                                serial.data().get_cache_data().get_current_data(),
-                            )
-                            .font(font)
-                            .desired_width(f32::INFINITY),
-                        );
+                        draw_serial_input_area(ui, &mut serial);
 
                         // Add extra vertical space at bottom to ensure distance from edge
-                        ui.add_space(20.0); // Increased space to prevent overlap with window bottom
+                        ui.add_space(8.0);
                     }
                 }
             },
@@ -453,6 +451,7 @@ fn serial_ui(
                         continue;
                     };
                     if selected.is_selected(&serial.set.port_name) {
+                        let llm_input_height = INPUT_PANEL_HEIGHT;
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new(format!("LLM: {}", serial.set.port_name))
@@ -473,10 +472,25 @@ fn serial_ui(
                             );
                         });
                         ui.separator();
-                        draw_llm_conversation(ui, &mut serial);
+                        ui.allocate_ui_with_layout(
+                            egui::Vec2::new(
+                                ui.available_width(),
+                                (ui.available_height() - llm_input_height).max(120.0),
+                            ),
+                            egui::Layout::top_down(egui::Align::LEFT),
+                            |ui| {
+                                draw_llm_conversation(ui, &mut serial);
+                            },
+                        );
                         ui.separator();
-                        draw_llm_input_area(ui, &mut serial, &mut *panel_widths);
-                        ui.add_space(20.0);
+                        ui.allocate_ui_with_layout(
+                            egui::Vec2::new(ui.available_width(), llm_input_height),
+                            egui::Layout::top_down(egui::Align::LEFT),
+                            |ui| {
+                                draw_llm_input_area(ui, &mut serial, &mut panel_widths);
+                            },
+                        );
+                        ui.add_space(8.0);
                         break;
                     }
                 }
@@ -492,7 +506,9 @@ fn serial_ui(
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
-                ui.label("Please enter your LLM API key and select a model in the left settings panel.");
+                ui.label(
+                    "Please enter your LLM API key and select a model in the left settings panel.",
+                );
                 ui.horizontal(|ui| {
                     ui.add_space(ui.available_width() / 2.0 - 40.0);
                     if ui.button("  OK  ").clicked() {
@@ -513,20 +529,12 @@ fn send_cache_data(mut serials: Query<&mut Serials>) {
             continue;
         };
         if serial.is_open() {
-            let cache = serial.data().get_cache_data().get_current_data().clone();
-            if cache.contains('\r') || cache.contains('\n') {
-                let data = if *serial.data().line_feed() {
-                    cache.clone()
-                } else {
-                    cache.replace(['\r', '\n'], "")
-                };
-                let history_data = data.replace(['\r', '\n'], "");
-                serial
-                    .data()
-                    .get_cache_data()
-                    .add_history_data(history_data);
-                serial.data().send_data(data);
-                serial.data().get_cache_data().clear_current_data();
+            let should_submit = {
+                let current = serial.data().get_cache_data().get_current_data();
+                current.contains('\r') || current.contains('\n')
+            };
+            if should_submit {
+                submit_serial_input(&mut serial);
             }
         }
     }

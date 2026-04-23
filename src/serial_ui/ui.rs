@@ -10,6 +10,40 @@ use bevy_egui::{EguiContexts, egui};
 use std::sync::MutexGuard;
 use tokio_serial::{DataBits, FlowControl, Parity, StopBits};
 
+/// Shared text edit height for serial and LLM input boxes.
+pub const INPUT_TEXT_EDIT_HEIGHT: f32 = 84.0;
+
+/// Shared bottom panel height so serial and LLM input regions stay aligned.
+pub const INPUT_PANEL_HEIGHT: f32 = 180.0;
+
+const SIDEBAR_LABEL_WIDTH: f32 = 74.0;
+
+fn sidebar_row<R>(
+    ui: &mut egui::Ui,
+    label: &str,
+    add_value: impl FnOnce(&mut egui::Ui, f32) -> R,
+) -> R {
+    ui.horizontal(|ui| {
+        ui.add_sized([SIDEBAR_LABEL_WIDTH, 20.0], egui::Label::new(label));
+        let value_width = ui.available_width().max(90.0);
+        add_value(ui, value_width)
+    })
+    .inner
+}
+
+pub fn draw_sidebar_section(
+    ui: &mut egui::Ui,
+    title: &str,
+    add_content: impl FnOnce(&mut egui::Ui),
+) {
+    ui.group(|ui| {
+        ui.set_width(ui.available_width());
+        ui.label(egui::RichText::new(title).strong());
+        ui.add_space(6.0);
+        add_content(ui);
+    });
+}
+
 /// Resource for tracking the currently selected serial port.
 #[derive(Resource, Default)]
 pub struct Selected {
@@ -36,51 +70,69 @@ impl Selected {
     }
 }
 
-/// Draws the serial port selection list.
+/// Draws the serial port selection dropdown and open/close button for the selected port.
 pub fn draw_select_serial_ui(ui: &mut egui::Ui, serials: &mut Serials, selected: &mut Selected) {
-    for serial in &mut serials.serial {
-        let Ok(mut serial) = serial.lock() else {
-            continue;
+    sidebar_row(ui, "Port", |ui, width| {
+        let selected_text = if selected.selected().is_empty() {
+            "Select a port".to_string()
+        } else {
+            selected.selected().to_string()
         };
-        ui.horizontal(|ui| {
-            // Removed custom color usage; default theme color will be applied.
 
-            if ui
-                .selectable_label(
-                    selected.is_selected(&serial.set.port_name),
-                    egui::RichText::new(&serial.set.port_name).strong(),
-                )
-                .clicked()
-            {
-                selected.select(&serial.set.port_name);
+        egui::ComboBox::from_id_salt("serial_port_selector")
+            .width((width - 58.0).max(80.0))
+            .selected_text(selected_text)
+            .show_ui(ui, |ui| {
+                for serial in &mut serials.serial {
+                    let Ok(serial) = serial.lock() else {
+                        continue;
+                    };
+                    if ui
+                        .selectable_label(
+                            selected.is_selected(&serial.set.port_name),
+                            &serial.set.port_name,
+                        )
+                        .clicked()
+                    {
+                        selected.select(&serial.set.port_name);
+                    }
+                }
+            });
+
+        for serial in &mut serials.serial {
+            let Ok(mut serial) = serial.lock() else {
+                continue;
+            };
+            if selected.is_selected(&serial.set.port_name) {
+                open_ui(ui, &mut serial, selected);
+                return;
             }
-            open_ui(ui, &mut serial, selected);
-        });
-    }
+        }
+
+        ui.add_enabled(false, egui::Button::new("Open"));
+    });
 }
 
 /// Draws the baud rate selector.
 pub fn draw_baud_rate_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
-    ui.horizontal(|ui| {
-        ui.label("Baud Rate");
+    sidebar_row(ui, "Baud Rate", |ui, width| {
         egui::ComboBox::from_id_salt(format!("{}_baud", serial.set.port_name))
-            .width(60f32)
+            .width(width)
             .selected_text(serial.set.baud_rate().to_string())
             .show_ui(ui, |ui| {
                 for baud_rate in COMMON_BAUD_RATES {
                     ui.selectable_value(serial.set.baud_rate(), *baud_rate, baud_rate.to_string())
                         .on_hover_text("Select baud rate");
                 }
-            });
+            })
     });
 }
 
 /// Draws the data bits selector.
 pub fn draw_data_bits_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
-    ui.horizontal(|ui| {
-        ui.label("Data Bits");
+    sidebar_row(ui, "Data Bits", |ui, width| {
         egui::ComboBox::from_id_salt(format!("{}_data", serial.set.port_name))
-            .width(60f32)
+            .width(width)
             .selected_text(serial.set.data_size().to_string())
             .show_ui(ui, |ui| {
                 for bits in [
@@ -91,31 +143,29 @@ pub fn draw_data_bits_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Se
                 ] {
                     ui.selectable_value(serial.set.data_size(), bits, format!("{bits}"));
                 }
-            });
+            })
     });
 }
 
 /// Draws the stop bits selector.
 pub fn draw_stop_bits_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
-    ui.horizontal(|ui| {
-        ui.label("Stop Bits");
+    sidebar_row(ui, "Stop Bits", |ui, width| {
         egui::ComboBox::from_id_salt(format!("{}_stop", serial.set.port_name))
-            .width(60f32)
+            .width(width)
             .selected_text(serial.set.stop_bits().to_string())
             .show_ui(ui, |ui| {
                 for bits in [StopBits::One, StopBits::Two] {
                     ui.selectable_value(serial.set.stop_bits(), bits, format!("{bits}"));
                 }
-            });
+            })
     });
 }
 
 /// Draws the flow control selector.
 pub fn draw_flow_control_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
-    ui.horizontal(|ui| {
-        ui.label("Flow Ctrl");
+    sidebar_row(ui, "Flow Ctrl", |ui, width| {
         egui::ComboBox::from_id_salt(format!("{}_flow", serial.set.port_name))
-            .width(60f32)
+            .width(width)
             .selected_text(serial.set.flow_control().to_string())
             .show_ui(ui, |ui| {
                 for flow in [
@@ -125,35 +175,32 @@ pub fn draw_flow_control_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_,
                 ] {
                     ui.selectable_value(serial.set.flow_control(), flow, format!("{flow}"));
                 }
-            });
+            })
     });
 }
 
 /// Draws the parity selector.
 pub fn draw_parity_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
-    ui.horizontal(|ui| {
-        ui.label("Parity   ");
+    sidebar_row(ui, "Parity", |ui, width| {
         egui::ComboBox::from_id_salt(format!("{}_parity", serial.set.port_name))
-            .width(60f32)
+            .width(width)
             .selected_text(serial.set.parity().to_string())
             .show_ui(ui, |ui| {
                 for parity in [Parity::None, Parity::Odd, Parity::Even] {
                     ui.selectable_value(serial.set.parity(), parity, format!("{parity}"));
                 }
-            });
+            })
     });
 }
 
 /// Draws the timeout selector.
 pub fn draw_timeout_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
-    ui.horizontal(|ui| {
-        ui.label("Timeout  ");
-
+    sidebar_row(ui, "Timeout", |ui, width| {
         // Convert timeout from Duration to milliseconds for display (capped at u64::MAX)
         let timeout_ms = serial.set.timeout.as_millis().min(u64::MAX.into()) as u64;
 
         egui::ComboBox::from_id_salt(format!("{}_timeout", serial.set.port_name))
-            .width(60f32)
+            .width(width)
             .selected_text(format!("{timeout_ms} ms"))
             .show_ui(ui, |ui| {
                 // Common timeout values in milliseconds
@@ -165,7 +212,7 @@ pub fn draw_timeout_selector(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Seri
                         *serial.set.timeout() = std::time::Duration::from_millis(timeout_opt);
                     }
                 }
-            });
+            })
     });
 }
 
@@ -211,15 +258,17 @@ pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, selected:
 
 /// Draws the serial setting status UI.
 pub fn draw_serial_setting_ui(ui: &mut egui::Ui, selected: &mut Selected) {
-    ui.horizontal(|ui| {
-        if selected.selected().is_empty() {
-            ui.label("No port selected");
+    sidebar_row(ui, "Selected", |ui, width| {
+        let text = if selected.selected().is_empty() {
+            "No port selected"
         } else {
-            ui.label("Selected:");
-            ui.label(selected.selected());
-        }
+            selected.selected()
+        };
+        ui.add_sized(
+            [width, 20.0],
+            egui::Label::new(egui::RichText::new(text).weak()).truncate(),
+        );
     });
-    ui.separator();
 }
 
 /// Draws the serial context label in the tab bar.
@@ -322,38 +371,32 @@ pub fn llm_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
 
 /// Draws the model selector for LLM (global config).
 pub fn draw_llm_model_selector(ui: &mut egui::Ui, config: &mut crate::serial_ui::PanelWidths) {
-    ui.horizontal(|ui| {
-        ui.label("Model:");
+    sidebar_row(ui, "Model", |ui, width| {
         egui::ComboBox::from_id_salt("llm_model_selector")
-            .width(130f32)
+            .width(width)
             .selected_text(&config.llm_model)
             .show_ui(ui, |ui| {
                 for (model_id, display_name) in TEXT_MODELS {
-                    ui.selectable_value(
-                        &mut config.llm_model,
-                        model_id.to_string(),
-                        *display_name,
-                    );
+                    ui.selectable_value(&mut config.llm_model, model_id.to_string(), *display_name);
                 }
-            });
+            })
     });
 }
 
 /// Draws the API key input for LLM (global config).
 pub fn draw_llm_key_input(ui: &mut egui::Ui, config: &mut crate::serial_ui::PanelWidths) {
-    ui.horizontal(|ui| {
-        ui.label("Key:");
+    sidebar_row(ui, "API Key", |ui, width| {
         ui.add(
             egui::TextEdit::singleline(&mut config.llm_key)
                 .password(true)
-                .desired_width(120.0),
+                .desired_width(width),
         );
     });
 }
 
 /// Draws the coding plan toggle for LLM (global config).
 pub fn draw_llm_coding_plan_toggle(ui: &mut egui::Ui, config: &mut crate::serial_ui::PanelWidths) {
-    ui.horizontal(|ui| {
+    sidebar_row(ui, "Coding", |ui, _width| {
         let with_coding = config.llm_with_coding_plan;
         let button_text = if with_coding {
             "Coding: ON"
@@ -373,7 +416,7 @@ pub fn draw_llm_coding_plan_toggle(ui: &mut egui::Ui, config: &mut crate::serial
 /// Draws the conversation history for LLM with bubble chat styling.
 pub fn draw_llm_conversation(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
     let visuals = ui.visuals().clone();
-    let available_height = (ui.available_height() - 80.0).max(120.0);
+    let available_height = ui.available_height().max(120.0);
 
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
@@ -525,43 +568,146 @@ pub fn draw_llm_input_area(
     serial: &mut MutexGuard<'_, Serial>,
     config: &mut crate::serial_ui::PanelWidths,
 ) {
-    let available_width = ui.available_width();
-    const LLM_INPUT_HEIGHT: f32 = 75.0;
     let font = egui::FontId::new(18.0, egui::FontFamily::Monospace);
+    let can_send = !serial.llm().input_buffer.trim().is_empty() && !serial.llm().is_processing;
 
-    ui.horizontal_top(|ui| {
-        let input_width = (available_width - 66.0).max(20.0);
+    ui.vertical(|ui| {
         ui.add_sized(
-            [input_width, LLM_INPUT_HEIGHT],
+            [ui.available_width(), INPUT_TEXT_EDIT_HEIGHT],
             egui::TextEdit::multiline(&mut serial.llm().input_buffer)
                 .hint_text("Ask AI...")
                 .font(font),
         );
+        ui.add_space(6.0);
 
-        let can_send = !serial.llm().input_buffer.trim().is_empty()
-            && !config.llm_key.is_empty()
-            && !serial.llm().is_processing;
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(
+                    can_send,
+                    egui::Button::new(egui::RichText::new("Send").strong()),
+                )
+                .clicked()
+            {
+                submit_llm_input(serial, config);
+            }
 
-        ui.vertical(|ui| {
-            let send_button = ui.add_sized(
-                [60.0, LLM_INPUT_HEIGHT],
-                egui::Button::new(egui::RichText::new("Send").strong()),
-            );
+            if ui.button("Clear").clicked() {
+                serial.llm().input_buffer.clear();
+            }
 
-            if send_button.clicked() {
-                if config.llm_key.is_empty() || config.llm_model.is_empty() {
-                    config.show_key_missing_popup = true;
-                } else if can_send {
-                    let content = serial.llm().input_buffer.trim().to_string();
-                    if !content.is_empty() {
-                        serial.llm().add_user_message(&content);
-                        serial.llm().input_buffer.clear();
-                        serial.llm().is_processing = true;
-                    }
-                }
+            if serial.llm().is_processing {
+                ui.label(egui::RichText::new("Waiting for response...").weak());
+            } else if config.llm_key.is_empty() || config.llm_model.is_empty() {
+                ui.label(egui::RichText::new("Set key/model to enable sending").weak());
             }
         });
     });
+}
+
+/// Draws the main serial input area and its action buttons.
+pub fn draw_serial_input_area(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    let font = egui::FontId::new(18.0, egui::FontFamily::Monospace);
+    let can_send =
+        serial.is_open() && !serial.data().get_cache_data().get_current_data().is_empty();
+
+    ui.add_sized(
+        [ui.available_width(), INPUT_TEXT_EDIT_HEIGHT],
+        egui::TextEdit::multiline(serial.data().get_cache_data().get_current_data())
+            .hint_text("Type data to send...")
+            .font(font)
+            .desired_width(f32::INFINITY),
+    );
+    ui.add_space(6.0);
+
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(
+                can_send,
+                egui::Button::new(egui::RichText::new("Send").strong()),
+            )
+            .clicked()
+        {
+            submit_serial_input(serial);
+        }
+
+        if ui.button("Clear").clicked() {
+            serial.data().get_cache_data().clear_current_data();
+        }
+
+        if ui.button("Prev").clicked() {
+            serial.data().get_cache_data().sub_history_index();
+            let index = serial.data().get_cache_data().get_current_data_index();
+            *serial.data().get_cache_data().get_current_data() =
+                serial.data().get_cache_data().get_history_data(index);
+        }
+
+        if ui.button("Next").clicked() {
+            serial.data().get_cache_data().add_history_index();
+            let index = serial.data().get_cache_data().get_current_data_index();
+            *serial.data().get_cache_data().get_current_data() =
+                serial.data().get_cache_data().get_history_data(index);
+        }
+
+        if !serial.is_open() {
+            ui.label(egui::RichText::new("Open the port before sending").weak());
+        }
+    });
+}
+
+/// Queues the current serial input for sending.
+pub fn submit_serial_input(serial: &mut Serial) -> bool {
+    if !serial.is_open() {
+        return false;
+    }
+
+    let cache = serial.data().get_cache_data().get_current_data().clone();
+    if cache.is_empty() {
+        return false;
+    }
+
+    let data = if *serial.data().line_feed() {
+        if cache.contains('\r') || cache.contains('\n') {
+            cache.clone()
+        } else {
+            format!("{cache}\n")
+        }
+    } else {
+        cache.replace(['\r', '\n'], "")
+    };
+    let history_data = cache.replace(['\r', '\n'], "");
+    if history_data.is_empty() {
+        return false;
+    }
+
+    serial
+        .data()
+        .get_cache_data()
+        .add_history_data(history_data);
+    serial.data().send_data(data);
+    serial.data().get_cache_data().clear_current_data();
+    true
+}
+
+/// Submits the current LLM input if configuration is complete.
+pub fn submit_llm_input(serial: &mut Serial, config: &mut crate::serial_ui::PanelWidths) -> bool {
+    if config.llm_key.is_empty() || config.llm_model.is_empty() {
+        config.show_key_missing_popup = true;
+        return false;
+    }
+
+    if serial.llm().is_processing {
+        return false;
+    }
+
+    let content = serial.llm().input_buffer.trim().to_string();
+    if content.is_empty() {
+        return false;
+    }
+
+    serial.llm().add_user_message(&content);
+    serial.llm().input_buffer.clear();
+    serial.llm().is_processing = true;
+    true
 }
 
 /// Draws the console mode toggle button.
