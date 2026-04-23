@@ -59,13 +59,13 @@ fn bytes_to_str_with_ansi(data: &[u8]) -> String {
     result
 }
 use ui::{
-    INPUT_PANEL_HEIGHT, INPUT_TOOLBAR_HEIGHT, MarkdownViewerCache, Selected, console_mode_ui,
-    data_line_feed_ui, data_type_ui, draw_baud_rate_selector, draw_data_bits_selector,
-    draw_flow_control_selector, draw_llm_coding_plan_toggle, draw_llm_conversation,
-    draw_llm_input_area, draw_llm_key_input, draw_llm_model_selector, draw_parity_selector,
-    draw_select_serial_ui, draw_serial_context_label_ui, draw_serial_context_ui,
-    draw_serial_input_area, draw_serial_setting_ui, draw_sidebar_section, draw_stop_bits_selector,
-    draw_timeout_selector, clear_log_ui, submit_serial_input, timestamp_ui,
+    INPUT_PANEL_HEIGHT, INPUT_TOOLBAR_HEIGHT, MarkdownViewerCache, Selected, clear_log_ui,
+    console_mode_ui, data_line_feed_ui, data_type_ui, draw_baud_rate_selector,
+    draw_data_bits_selector, draw_flow_control_selector, draw_llm_coding_plan_toggle,
+    draw_llm_conversation, draw_llm_input_area, draw_llm_key_input, draw_llm_model_selector,
+    draw_parity_selector, draw_select_serial_ui, draw_serial_context_label_ui,
+    draw_serial_context_ui, draw_serial_input_area, draw_serial_setting_ui, draw_sidebar_section,
+    draw_stop_bits_selector, draw_timeout_selector, submit_serial_input, timestamp_ui,
 };
 
 /// Configuration file path for app persistence.
@@ -270,8 +270,9 @@ fn serial_ui(
                 }
             }
 
-            ui.separator();
-            egui::widgets::global_theme_preference_switch(ui);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                egui::widgets::global_theme_preference_switch(ui);
+            });
         });
     });
 
@@ -469,9 +470,14 @@ fn serial_ui(
                             |ui| {
                                 data_type_ui(ui, &mut serial);
                                 data_line_feed_ui(ui, &mut serial);
-                                clear_log_ui(ui, &mut serial);
                                 timestamp_ui(ui, &mut serial);
                                 console_mode_ui(ui, &mut serial);
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        clear_log_ui(ui, &mut serial);
+                                    },
+                                );
                             },
                         );
 
