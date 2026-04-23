@@ -65,7 +65,7 @@ use ui::{
     draw_llm_input_area, draw_llm_key_input, draw_llm_model_selector, draw_parity_selector,
     draw_select_serial_ui, draw_serial_context_label_ui, draw_serial_context_ui,
     draw_serial_input_area, draw_serial_setting_ui, draw_sidebar_section, draw_stop_bits_selector,
-    draw_timeout_selector, llm_ui, submit_serial_input, timestamp_ui,
+    draw_timeout_selector, clear_log_ui, submit_serial_input, timestamp_ui,
 };
 
 /// Configuration file path for app persistence.
@@ -79,6 +79,12 @@ pub struct PanelWidths {
     pub left_width: f32,
     /// Current (user-adjustable) width of the right side panel.
     pub right_width: f32,
+    /// Whether the settings side panel is visible.
+    #[serde(default = "default_true")]
+    pub show_settings_panel: bool,
+    /// Whether the LLVM side panel is visible.
+    #[serde(default)]
+    pub show_llm_panel: bool,
     /// Global LLM API key (shared across all serial ports).
     #[serde(default)]
     pub llm_key: String,
@@ -98,6 +104,8 @@ impl Default for PanelWidths {
         Self {
             left_width: 160.0,
             right_width: 220.0,
+            show_settings_panel: true,
+            show_llm_panel: false,
             llm_key: String::new(),
             llm_model: String::from("glm-4.5-air"),
             llm_with_coding_plan: false,
@@ -112,6 +120,10 @@ impl PanelWidths {
         self.left_width = self.left_width.clamp(120.0, 600.0);
         self.right_width = self.right_width.clamp(160.0, 800.0);
     }
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 /// Load configuration directly from disk file.
@@ -218,65 +230,109 @@ fn serial_ui(
         return;
     };
 
-    // ---------------- Left Side Panel ----------------
-    let left_show = egui::SidePanel::left("serial_ui_left")
-        .resizable(true)
-        .default_width(panel_widths.left_width)
-        .min_width(120.0)
-        .max_width(600.0)
-        .show(ctx, |ui| {
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        egui::widgets::global_theme_preference_switch(ui);
-                    });
-                    ui.add_space(8.0);
+    let mut selected_serial_exists = false;
+    let mut selected_llm_enabled = false;
+    for serial_ref in &mut serials_data.serial {
+        let Ok(mut serial) = serial_ref.lock() else {
+            continue;
+        };
+        if selected.is_selected(&serial.set.port_name) {
+            selected_serial_exists = true;
+            selected_llm_enabled = *serial.llm().enable();
+            break;
+        }
+    }
+    panel_widths.show_llm_panel = selected_llm_enabled;
 
-                    draw_sidebar_section(ui, "Connection", |ui| {
-                        draw_select_serial_ui(ui, &mut serials_data, selected.as_mut());
-                        ui.add_space(6.0);
-                        draw_serial_setting_ui(ui, selected.as_mut());
-                    });
+    egui::TopBottomPanel::top("serial_ui_topbar").show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            if ui
+                .selectable_label(panel_widths.show_settings_panel, "Settings")
+                .clicked()
+            {
+                panel_widths.show_settings_panel = !panel_widths.show_settings_panel;
+            }
 
-                    ui.add_space(8.0);
+            let llvm_response = ui.add_enabled(
+                selected_serial_exists,
+                egui::Button::selectable(panel_widths.show_llm_panel, "LLVM"),
+            );
+            if llvm_response.clicked() {
+                panel_widths.show_llm_panel = !panel_widths.show_llm_panel;
+                for serial_ref in &mut serials_data.serial {
+                    let Ok(mut serial) = serial_ref.lock() else {
+                        continue;
+                    };
+                    if selected.is_selected(&serial.set.port_name) {
+                        *serial.llm().enable() = panel_widths.show_llm_panel;
+                        break;
+                    }
+                }
+            }
 
-                    draw_sidebar_section(ui, "Serial Settings", |ui| {
-                        let mut drew_selected_serial = false;
-                        for serial in &mut serials_data.serial {
-                            let Ok(mut serial) = serial.lock() else {
-                                continue;
-                            };
-                            if selected.is_selected(&serial.set.port_name) {
-                                drew_selected_serial = true;
-                                draw_baud_rate_selector(ui, &mut serial);
-                                draw_data_bits_selector(ui, &mut serial);
-                                draw_stop_bits_selector(ui, &mut serial);
-                                draw_parity_selector(ui, &mut serial);
-                                draw_flow_control_selector(ui, &mut serial);
-                                draw_timeout_selector(ui, &mut serial);
-                                break;
-                            }
-                        }
-                        if !drew_selected_serial {
-                            ui.label(
-                                egui::RichText::new("Select a port to edit its serial settings.")
-                                    .weak(),
-                            );
-                        }
-                    });
-
-                    ui.add_space(8.0);
-
-                    draw_sidebar_section(ui, "LLM Settings", |ui| {
-                        draw_llm_key_input(ui, &mut panel_widths);
-                        draw_llm_model_selector(ui, &mut panel_widths);
-                        draw_llm_coding_plan_toggle(ui, &mut panel_widths);
-                    });
-                    ui.add_space(8.0);
-                });
+            ui.separator();
+            egui::widgets::global_theme_preference_switch(ui);
         });
-    panel_widths.left_width = left_show.response.rect.width();
+    });
+
+    // ---------------- Left Side Panel ----------------
+    if panel_widths.show_settings_panel {
+        let left_show = egui::SidePanel::left("serial_ui_left")
+            .resizable(true)
+            .default_width(panel_widths.left_width)
+            .min_width(120.0)
+            .max_width(600.0)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        draw_sidebar_section(ui, "Connection", |ui| {
+                            draw_select_serial_ui(ui, &mut serials_data, selected.as_mut());
+                            ui.add_space(6.0);
+                            draw_serial_setting_ui(ui, selected.as_mut());
+                        });
+
+                        ui.add_space(8.0);
+
+                        draw_sidebar_section(ui, "Serial Settings", |ui| {
+                            let mut drew_selected_serial = false;
+                            for serial in &mut serials_data.serial {
+                                let Ok(mut serial) = serial.lock() else {
+                                    continue;
+                                };
+                                if selected.is_selected(&serial.set.port_name) {
+                                    drew_selected_serial = true;
+                                    draw_baud_rate_selector(ui, &mut serial);
+                                    draw_data_bits_selector(ui, &mut serial);
+                                    draw_stop_bits_selector(ui, &mut serial);
+                                    draw_parity_selector(ui, &mut serial);
+                                    draw_flow_control_selector(ui, &mut serial);
+                                    draw_timeout_selector(ui, &mut serial);
+                                    break;
+                                }
+                            }
+                            if !drew_selected_serial {
+                                ui.label(
+                                    egui::RichText::new(
+                                        "Select a port to edit its serial settings.",
+                                    )
+                                    .weak(),
+                                );
+                            }
+                        });
+
+                        ui.add_space(8.0);
+
+                        draw_sidebar_section(ui, "LLM Settings", |ui| {
+                            draw_llm_key_input(ui, &mut panel_widths);
+                            draw_llm_model_selector(ui, &mut panel_widths);
+                            draw_llm_coding_plan_toggle(ui, &mut panel_widths);
+                        });
+                        ui.add_space(8.0);
+                    });
+            });
+        panel_widths.left_width = left_show.response.rect.width();
+    }
 
     // ---------------- Central Panel ----------------
     egui::CentralPanel::default().show(ctx, |ui| {
@@ -413,9 +469,9 @@ fn serial_ui(
                             |ui| {
                                 data_type_ui(ui, &mut serial);
                                 data_line_feed_ui(ui, &mut serial);
+                                clear_log_ui(ui, &mut serial);
                                 timestamp_ui(ui, &mut serial);
                                 console_mode_ui(ui, &mut serial);
-                                llm_ui(ui, &mut serial);
                             },
                         );
 
@@ -434,18 +490,7 @@ fn serial_ui(
     });
 
     // ---------------- Right Side Panel (LLM) ----------------
-    let mut llm_enabled_for_selected = false;
-    for serial_ref in &mut serials_data.serial {
-        let Ok(mut serial) = serial_ref.lock() else {
-            continue;
-        };
-        if selected.is_selected(&serial.set.port_name) && *serial.llm().enable() {
-            llm_enabled_for_selected = true;
-            break;
-        }
-    }
-
-    if llm_enabled_for_selected {
+    if panel_widths.show_llm_panel && selected_serial_exists {
         let right_show = egui::SidePanel::right("serial_ui_right")
             .resizable(true)
             .default_width(panel_widths.right_width)
@@ -461,8 +506,7 @@ fn serial_ui(
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new(format!("LLM: {}", serial.set.port_name))
-                                    .strong()
-                                    .color(egui::Color32::from_rgb(40, 40, 160)),
+                                    .strong(),
                             );
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),

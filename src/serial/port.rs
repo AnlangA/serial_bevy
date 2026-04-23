@@ -491,6 +491,11 @@ impl PortData {
         result.into_bytes()
     }
 
+    /// Clears the in-memory display buffer for the current log view.
+    pub fn clear_display_buffer(&mut self) {
+        self.display_buffer.clear();
+    }
+
     /// Flushes the persistent file writer.
     pub fn flush_file_writer(&mut self) {
         if let Some(writer) = &mut self.file_writer {

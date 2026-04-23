@@ -361,19 +361,15 @@ pub fn data_line_feed_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>)
     });
 }
 
-/// Draws the LLM toggle button.
-pub fn llm_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
-    ui.horizontal(|ui| {
-        let llm_enable = *serial.llm().enable();
-        let button_text = if llm_enable {
-            "Disable LLM"
-        } else {
-            "Enable LLM"
-        };
-        if ui.button(button_text).clicked() {
-            *serial.llm().enable() = !llm_enable;
-        }
-    });
+/// Draws the clear-log button for the current serial log view.
+pub fn clear_log_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>) {
+    if ui
+        .button("Clear Log")
+        .on_hover_text("Clear the current serial log view")
+        .clicked()
+    {
+        serial.data().clear_display_buffer();
+    }
 }
 
 /// Draws the model selector for LLM (global config).
@@ -682,6 +678,7 @@ pub fn submit_serial_input(serial: &mut Serial) -> bool {
 /// Submits the current LLM input if configuration is complete.
 pub fn submit_llm_input(serial: &mut Serial, config: &mut crate::serial_ui::PanelWidths) -> bool {
     if config.llm_key.is_empty() || config.llm_model.is_empty() {
+        config.show_settings_panel = true;
         config.show_key_missing_popup = true;
         return false;
     }
