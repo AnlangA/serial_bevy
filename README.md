@@ -111,7 +111,7 @@ serial_bevy/
 - **tokio**: Async runtime
 - **tokio-serial**: Serial port communication
 - **chrono**: Timestamp generation for logging
-- **zhipuai-rs**: LLM integration (optional)
+- **zai-rs**: LLM integration (optional)
 
 ## Development
 

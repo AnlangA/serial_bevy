@@ -214,11 +214,9 @@ pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, selected:
                     }
                     Err(e) => warn!("Failed to open port: {e}"),
                 }
-                let _ = std::fs::create_dir_all("logs");
                 let time = chrono::Local::now().format("%Y%m%d_%H%M%S_%f").to_string();
                 let port_name = &serial.set.port_name;
-                let safe_port = port_name.trim_start_matches('/').replace('/', "_");
-                let file_name = format!("logs/{}_{}.txt", safe_port, time);
+                let file_name = format!("{port_name}_{time}.txt");
                 serial.data().add_source_file(file_name);
             }
         }

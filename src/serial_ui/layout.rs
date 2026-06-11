@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
+use std::collections::HashMap;
 
 use crate::serial::llm::LlmMessage;
 use crate::serial::{Selected, Serials};
@@ -16,39 +17,90 @@ use super::ui::{
     draw_timeout_selector, render_message_content, timestamp_ui,
 };
 
-/// Converts bytes to string, skipping control characters but preserving ANSI sequences.
-fn bytes_to_str_with_ansi(data: &[u8]) -> String {
-    let mut result = String::with_capacity(data.len());
-    let mut i = 0;
-    while i < data.len() {
-        let b = data[i];
-        if b == 0x00 || b == 0x0D {
-            i += 1;
-            continue;
-        }
-        if b < 0x80 {
-            result.push(b as char);
-            i += 1;
-            continue;
-        }
-        let len = if b & 0xE0 == 0xC0 {
-            2
-        } else if b & 0xF0 == 0xE0 {
-            3
-        } else if b & 0xF8 == 0xF0 {
-            4
-        } else {
-            i += 1;
-            continue;
-        };
-        if i + len <= data.len()
-            && let Ok(s) = std::str::from_utf8(&data[i..i + len])
-        {
-            result.push_str(s);
-        }
-        i += len;
+#[derive(Clone)]
+struct SerialTextSegment {
+    text: String,
+    foreground_color: Option<egui::Color32>,
+    background_color: Option<egui::Color32>,
+}
+
+#[derive(Default)]
+struct CachedSerialOutput {
+    revision: u64,
+    lines: Vec<Vec<SerialTextSegment>>,
+}
+
+/// Parsed serial output cache keyed by port name.
+///
+/// Serial display text is already cached in `PortData`; this cache avoids
+/// reparsing ANSI escape sequences every egui frame when no new data arrived.
+#[derive(Resource, Default)]
+pub struct SerialOutputCache {
+    ports: HashMap<String, CachedSerialOutput>,
+}
+
+impl SerialOutputCache {
+    fn needs_refresh(&self, port_name: &str, revision: u64) -> bool {
+        self.ports
+            .get(port_name)
+            .map(|cached| cached.revision != revision)
+            .unwrap_or(true)
     }
-    result
+
+    fn lines_for(
+        &mut self,
+        port_name: &str,
+        revision: u64,
+        refreshed_text: Option<&str>,
+    ) -> &[Vec<SerialTextSegment>] {
+        if let Some(text) = refreshed_text {
+            let lines = parse_serial_output_lines(text);
+            self.ports.insert(
+                port_name.to_string(),
+                CachedSerialOutput { revision, lines },
+            );
+        }
+
+        self.ports
+            .get(port_name)
+            .map(|cached| cached.lines.as_slice())
+            .unwrap_or(&[])
+    }
+}
+
+fn parse_serial_output_lines(text: &str) -> Vec<Vec<SerialTextSegment>> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+
+    let mut parser = egui_sgr::AnsiParser::new();
+    let colored_segments = parser.parse(text);
+    let mut lines: Vec<Vec<SerialTextSegment>> = Vec::new();
+    let mut current_line: Vec<SerialTextSegment> = Vec::new();
+
+    for seg in colored_segments {
+        for text_part in seg.text.split_inclusive('\n') {
+            let ends_with_newline = text_part.ends_with('\n');
+            let text = text_part.trim_end_matches('\n');
+            if !text.is_empty() {
+                current_line.push(SerialTextSegment {
+                    text: text.to_string(),
+                    foreground_color: seg.foreground_color,
+                    background_color: seg.background_color,
+                });
+            }
+
+            if ends_with_newline && !current_line.is_empty() {
+                lines.push(std::mem::take(&mut current_line));
+            }
+        }
+    }
+
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+
+    lines
 }
 
 fn selected_serial_exists(serials: &Serials, selected: &Selected) -> bool {
@@ -176,70 +228,33 @@ fn draw_left_panel(
     }
 }
 
-fn draw_serial_output(ui: &mut egui::Ui, port_name: &str, data: &[u8], data_height: f32) {
+fn draw_serial_output(
+    ui: &mut egui::Ui,
+    port_name: &str,
+    lines: &[Vec<SerialTextSegment>],
+    is_empty: bool,
+    data_height: f32,
+) {
     egui::ScrollArea::vertical()
         .stick_to_bottom(true)
         .auto_shrink([false, false])
         .max_height(data_height)
         .show(ui, |ui| {
-            if data.is_empty() {
+            if is_empty {
                 ui.heading(
                     egui::RichText::new(format!("{port_name} Data Receive Window"))
                         .color(egui::Color32::GRAY),
                 );
             } else {
-                let text = bytes_to_str_with_ansi(data);
-                let mut parser = egui_sgr::AnsiParser::new();
-                let colored_segments = parser.parse(&text);
-
-                let mut current_line: Vec<(String, Option<egui::Color32>, Option<egui::Color32>)> =
-                    Vec::new();
-
-                for seg in &colored_segments {
-                    let fg = seg.foreground_color;
-                    let bg = seg.background_color;
-                    let mut current_part = String::new();
-
-                    for ch in seg.text.chars() {
-                        if ch == '\n' {
-                            if !current_part.is_empty() {
-                                current_line.push((current_part.clone(), fg, bg));
-                                current_part.clear();
-                            }
-                            if !current_line.is_empty() {
-                                ui.horizontal(|ui| {
-                                    for (text, fg, bg) in &current_line {
-                                        let mut rt = egui::RichText::new(text).monospace();
-                                        if let Some(color) = fg {
-                                            rt = rt.color(*color);
-                                        }
-                                        if let Some(color) = bg {
-                                            rt = rt.background_color(*color);
-                                        }
-                                        ui.label(rt);
-                                    }
-                                });
-                                current_line.clear();
-                            }
-                        } else {
-                            current_part.push(ch);
-                        }
-                    }
-
-                    if !current_part.is_empty() {
-                        current_line.push((current_part, fg, bg));
-                    }
-                }
-
-                if !current_line.is_empty() {
+                for line in lines {
                     ui.horizontal(|ui| {
-                        for (text, fg, bg) in &current_line {
-                            let mut rt = egui::RichText::new(text).monospace();
-                            if let Some(color) = fg {
-                                rt = rt.color(*color);
+                        for segment in line {
+                            let mut rt = egui::RichText::new(&segment.text).monospace();
+                            if let Some(color) = segment.foreground_color {
+                                rt = rt.color(color);
                             }
-                            if let Some(color) = bg {
-                                rt = rt.background_color(*color);
+                            if let Some(color) = segment.background_color {
+                                rt = rt.background_color(color);
                             }
                             ui.label(rt);
                         }
@@ -249,7 +264,12 @@ fn draw_serial_output(ui: &mut egui::Ui, port_name: &str, data: &[u8], data_heig
         });
 }
 
-fn draw_central_panel(serials: &mut Serials, selected: &mut Selected, ctx: &egui::Context) {
+fn draw_central_panel(
+    serials: &mut Serials,
+    selected: &mut Selected,
+    ctx: &egui::Context,
+    output_cache: &mut SerialOutputCache,
+) {
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.horizontal(|ui| {
             for serial in &mut serials.serial {
@@ -265,15 +285,26 @@ fn draw_central_panel(serials: &mut Serials, selected: &mut Selected, ctx: &egui
         let input_height = INPUT_PANEL_HEIGHT;
         let data_height = (available_height - input_height).max(0.0);
 
+        let mut selected_output = None;
         for serial in &mut serials.serial {
-            let Ok(mut serial) = serial.lock() else {
+            let Ok(serial) = serial.lock() else {
                 continue;
             };
             if selected.is_selected(&serial.set.port_name) {
-                let data = serial.data().read_current_source_file_bytes();
                 let port_name = serial.set.port_name.clone();
-                draw_serial_output(ui, &port_name, &data, data_height);
+                let revision = serial.data_ref().display_revision();
+                let is_empty = serial.data_ref().is_display_empty();
+                let refreshed_text = output_cache
+                    .needs_refresh(&port_name, revision)
+                    .then(|| serial.data_ref().display_text().to_string());
+                selected_output = Some((port_name, revision, is_empty, refreshed_text));
+                break;
             }
+        }
+
+        if let Some((port_name, revision, is_empty, refreshed_text)) = selected_output {
+            let lines = output_cache.lines_for(&port_name, revision, refreshed_text.as_deref());
+            draw_serial_output(ui, &port_name, lines, is_empty, data_height);
         }
 
         ui.separator();
@@ -614,6 +645,7 @@ pub fn serial_ui(
     mut panel_widths: ResMut<PanelWidths>,
     mut global_state: ResMut<GlobalLlmState>,
     mut markdown_cache: ResMut<MarkdownViewerCache>,
+    mut output_cache: ResMut<SerialOutputCache>,
 ) {
     let Ok(mut serials_data) = serials.single_mut() else {
         return;
@@ -632,7 +664,7 @@ pub fn serial_ui(
         selected_serial_exists,
     );
     draw_left_panel(&mut serials_data, selected.as_mut(), ctx, &mut panel_widths);
-    draw_central_panel(&mut serials_data, selected.as_mut(), ctx);
+    draw_central_panel(&mut serials_data, selected.as_mut(), ctx, &mut output_cache);
     draw_right_panel(
         &mut serials_data,
         selected.as_ref(),
@@ -643,4 +675,39 @@ pub fn serial_ui(
         selected_serial_exists,
     );
     draw_missing_config_popup(ctx, &mut global_state);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_serial_output_lines_preserves_ansi_colors() {
+        let lines = parse_serial_output_lines("plain\n\x1b[31mred\x1b[0m");
+
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0][0].text, "plain");
+        assert_eq!(lines[1][0].text, "red");
+        assert!(lines[1][0].foreground_color.is_some());
+    }
+
+    #[test]
+    fn serial_output_cache_reuses_lines_until_revision_changes() {
+        let mut cache = SerialOutputCache::default();
+
+        assert!(cache.needs_refresh("COM1", 1));
+        let first_ptr = {
+            let lines = cache.lines_for("COM1", 1, Some("one"));
+            assert_eq!(lines[0][0].text, "one");
+            lines.as_ptr()
+        };
+
+        assert!(!cache.needs_refresh("COM1", 1));
+        let second_ptr = cache.lines_for("COM1", 1, None).as_ptr();
+        assert_eq!(first_ptr, second_ptr);
+
+        assert!(cache.needs_refresh("COM1", 2));
+        let lines = cache.lines_for("COM1", 2, Some("two"));
+        assert_eq!(lines[0][0].text, "two");
+    }
 }

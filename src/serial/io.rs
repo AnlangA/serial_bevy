@@ -33,6 +33,9 @@ pub fn create_serial_port_threads(mut serials: Query<&mut Serials>, runtime: Res
         let Ok(mut serial) = serial.lock() else {
             continue;
         };
+        if serial.is_error() {
+            continue;
+        }
         if serial.thread_handle().is_none() {
             setup_serial_thread(&mut serial, &runtime);
         }
@@ -71,9 +74,16 @@ fn setup_serial_thread(serial: &mut Serial, runtime: &Runtime) {
         }
 
         let (read, write) = tokio::io::split(port);
-        let read_handle = spawn_read_thread(read, tx1.clone(), rx_shutdown, &port_name);
+        let mut read_handle = spawn_read_thread(read, tx1.clone(), rx_shutdown, &port_name);
 
-        handle_write_thread(write, rx, tx1, &port_name).await;
+        tokio::select! {
+            _ = handle_write_thread(write, rx, tx1, &port_name) => {}
+            read_result = &mut read_handle => {
+                if let Err(e) = read_result {
+                    error!("Read task failed on {port_name}: {e}");
+                }
+            }
+        }
 
         read_handle.abort();
         info!("Serial port thread exited: {port_name}");
@@ -92,16 +102,22 @@ async fn wait_for_port_open(
     tx1: &broadcast::Sender<PortChannelData>,
 ) -> Result<SerialStream, SerialBevyError> {
     loop {
-        if let Ok(PortChannelData::PortOpen(settings)) = rx.recv().await {
-            return match open_port(&settings).await {
-                Ok(port) => Ok(port),
-                Err(e) => {
-                    let _ = tx1.send(PortChannelData::PortError(PortRwData {
-                        data: b"open port failed".to_vec(),
-                    }));
-                    Err(e)
-                }
-            };
+        match rx.recv().await {
+            Ok(PortChannelData::PortOpen(settings)) => {
+                return match open_port(&settings).await {
+                    Ok(port) => Ok(port),
+                    Err(e) => {
+                        let _ = tx1.send(PortChannelData::PortError(PortRwData {
+                            data: format!("open port failed: {e}").into_bytes(),
+                        }));
+                        Err(e)
+                    }
+                };
+            }
+            Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+            Err(broadcast::error::RecvError::Closed) => {
+                return Err(SerialBevyError::channel("port command channel closed"));
+            }
         }
     }
 }
@@ -148,11 +164,16 @@ fn spawn_read_thread(
                             }
                         }
                         Ok(_) => {
-                            // Zero bytes read, connection closed
+                            let _ = tx1_read.send(PortChannelData::PortError(PortRwData {
+                                data: format!("{port_name} read returned zero bytes").into_bytes(),
+                            }));
                             break;
                         }
                         Err(e) => {
                             error!("Read error on {port_name}: {e}");
+                            let _ = tx1_read.send(PortChannelData::PortError(PortRwData {
+                                data: format!("{port_name} read error: {e}").into_bytes(),
+                            }));
                             break;
                         }
                     }
@@ -174,12 +195,15 @@ async fn handle_write_thread(
     port_name: &str,
 ) {
     loop {
-        if let Ok(data) = rx.recv().await {
-            match data {
+        match rx.recv().await {
+            Ok(data) => match data {
                 PortChannelData::PortWrite(data) => {
                     debug!("{} write: {:?}", port_name, data.data);
-                    if write.write_all(&data.data).await.is_err() {
-                        error!("{port_name} write error");
+                    if let Err(e) = write.write_all(&data.data).await {
+                        error!("{port_name} write error: {e}");
+                        let _ = tx1.send(PortChannelData::PortError(PortRwData {
+                            data: format!("{port_name} write error: {e}").into_bytes(),
+                        }));
                         break;
                     }
                 }
@@ -189,7 +213,11 @@ async fn handle_write_thread(
                     break;
                 }
                 _ => {}
+            },
+            Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                debug!("{port_name} write channel lagged by {skipped} messages");
             }
+            Err(broadcast::error::RecvError::Closed) => break,
         }
     }
 }
@@ -255,11 +283,25 @@ pub fn receive_serial_data(mut serials: Query<&mut Serials>) {
             continue;
         };
 
-        let Some(rx) = serial.rx_channel() else {
-            continue;
-        };
+        loop {
+            let data = {
+                let Some(rx) = serial.rx_channel() else {
+                    break;
+                };
+                match rx.try_recv() {
+                    Ok(data) => data,
+                    Err(broadcast::error::TryRecvError::Empty) => break,
+                    Err(broadcast::error::TryRecvError::Lagged(skipped)) => {
+                        debug!("Receive channel lagged by {skipped} messages");
+                        continue;
+                    }
+                    Err(broadcast::error::TryRecvError::Closed) => {
+                        serial.error();
+                        break;
+                    }
+                }
+            };
 
-        if let Ok(data) = rx.try_recv() {
             match data {
                 PortChannelData::PortState(state) => match state {
                     PortState::Ready | PortState::Close => {
@@ -267,13 +309,11 @@ pub fn receive_serial_data(mut serials: Query<&mut Serials>) {
                             serial.open();
                         } else {
                             serial.close();
-                            serial.data().clear_utf8_buffer();
                         }
                         serial.data().clear_send_data();
                     }
                     PortState::Error => {
                         serial.error();
-                        serial.data().clear_utf8_buffer();
                     }
                 },
                 PortChannelData::PortRead(data) => {
@@ -296,5 +336,37 @@ pub fn receive_serial_data(mut serials: Query<&mut Serials>) {
                 _ => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn receive_port_error_marks_serial_error_and_clears_pending_data() {
+        let (tx, rx) = broadcast::channel(4);
+        let mut serial = Serial::new();
+        serial.data().send_data("pending".to_string());
+        *serial.rx_channel() = Some(rx);
+
+        tx.send(PortChannelData::PortError(PortRwData {
+            data: b"read error".to_vec(),
+        }))
+        .expect("send port error");
+
+        let mut app = App::new();
+        let mut serials = Serials::new();
+        serials.add(serial);
+        app.world_mut().spawn(serials);
+        app.add_systems(Update, receive_serial_data);
+        app.update();
+
+        let mut query = app.world_mut().query::<&Serials>();
+        let serials = query.single(app.world()).expect("serials entity");
+        let mut serial = serials.get(0).lock().expect("serial lock");
+
+        assert!(serial.is_error());
+        assert!(serial.data().get_send_data().is_empty());
     }
 }

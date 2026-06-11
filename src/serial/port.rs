@@ -78,6 +78,12 @@ impl Serial {
         &mut self.data
     }
 
+    /// Gets an immutable reference to the port data.
+    #[must_use]
+    pub const fn data_ref(&self) -> &PortData {
+        &self.data
+    }
+
     /// Gets a mutable reference to the stream option.
     pub const fn stream(&mut self) -> &mut Option<SerialStream> {
         &mut self.stream
@@ -112,8 +118,10 @@ impl Serial {
     /// Closes the serial port.
     pub fn close(&mut self) {
         self.data.state().close();
+        self.data.clear_send_data();
+        self.data.clear_utf8_buffer();
         self.data.flush_file_writer();
-        self.thread_handle = None;
+        self.clear_runtime_handles();
     }
 
     /// Returns true if the port is closed.
@@ -125,6 +133,9 @@ impl Serial {
     /// Sets the port to error state.
     pub fn error(&mut self) {
         self.data.state().error();
+        self.data.clear_send_data();
+        self.data.clear_utf8_buffer();
+        self.clear_runtime_handles();
     }
 
     /// Returns true if the port is in error state.
@@ -136,6 +147,15 @@ impl Serial {
     /// Gets a mutable reference to the LLM configuration.
     pub const fn llm(&mut self) -> &mut LlmConfig {
         &mut self.llm
+    }
+
+    fn clear_runtime_handles(&mut self) {
+        if let Some(handle) = self.thread_handle.take() {
+            handle.abort();
+        }
+        self.stream = None;
+        self.tx_channel = None;
+        self.rx_channel = None;
     }
 }
 
@@ -408,5 +428,27 @@ mod tests {
 
         // Test that timeout as_millis works correctly
         assert_eq!(settings.timeout.as_millis(), 1000);
+    }
+
+    #[test]
+    fn test_close_clears_pending_send_data() {
+        let mut serial = Serial::new();
+        serial.data().send_data("pending".to_string());
+
+        serial.close();
+
+        assert!(serial.is_close());
+        assert!(serial.data().get_send_data().is_empty());
+    }
+
+    #[test]
+    fn test_error_clears_pending_send_data() {
+        let mut serial = Serial::new();
+        serial.data().send_data("pending".to_string());
+
+        serial.error();
+
+        assert!(serial.is_error());
+        assert!(serial.data().get_send_data().is_empty());
     }
 }

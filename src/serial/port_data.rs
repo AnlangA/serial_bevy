@@ -13,6 +13,11 @@ use super::data_types::DataType;
 use super::port::CacheData;
 use super::state::{DataSource, PortState};
 
+const LOG_DIR: &str = "logs";
+const FALLBACK_LOG_FILE: &str = "serial_log.txt";
+const DISPLAY_BUFFER_LIMIT: usize = 5000;
+const LOG_FLUSH_BYTE_THRESHOLD: usize = 8 * 1024;
+
 /// File data storage.
 struct FileData {
     /// List of file paths.
@@ -47,8 +52,12 @@ pub struct PortData {
     /// Accumulated display text cache for efficient reading.
     /// Updated in sync with `display_buffer` to avoid rebuilding every frame.
     display_text: String,
+    /// Monotonic version incremented whenever the display text changes.
+    display_revision: u64,
     /// Persistent file writer for logging.
     file_writer: Option<BufWriter<std::fs::File>>,
+    /// Bytes written since the last explicit flush.
+    pending_flush_bytes: usize,
 }
 
 impl Default for PortData {
@@ -73,13 +82,16 @@ impl PortData {
             show_timestamp: false,
             display_buffer: VecDeque::new(),
             display_text: String::new(),
+            display_revision: 0,
             file_writer: None,
+            pending_flush_bytes: 0,
         }
     }
 
     /// Adds a source file for logging under the relative `logs/` directory and returns the new file count.
     ///
     /// Sanitization rules:
+    /// - An optional leading `logs/` or `logs\` prefix is removed.
     /// - Leading `/` or `\` is stripped (prevents absolute paths).
     /// - Inner `/` or `\` are replaced with `_`.
     /// - `..` components are removed to prevent directory traversal attacks.
@@ -88,18 +100,9 @@ impl PortData {
     /// On failure to create the file, an error is logged but the path is still recorded.
     pub fn add_source_file(&mut self, name: String) -> usize {
         // Ensure logs directory exists (best-effort; ignore errors here).
-        let _ = std::fs::create_dir_all("logs");
+        let _ = std::fs::create_dir_all(LOG_DIR);
 
-        // Sanitize user-provided file name (e.g. "/dev/ttyUSB0_20250101_010101.txt").
-        // Strip leading slashes, replace inner slashes/backslashes with underscores,
-        // and remove `..` components to prevent path traversal attacks.
-        let sanitized = name
-            .trim_start_matches('/')
-            .trim_start_matches('\\')
-            .replace(['/', '\\'], "_")
-            .replace("..", "");
-
-        let path = format!("logs/{sanitized}");
+        let path = source_log_path(&name);
 
         match OpenOptions::new()
             .create(true)
@@ -109,10 +112,12 @@ impl PortData {
         {
             Ok(file) => {
                 self.file_writer = Some(BufWriter::new(file));
+                self.pending_flush_bytes = 0;
             }
             Err(e) => {
                 error!("Failed to create source file {path}: {e}");
                 self.file_writer = None;
+                self.pending_flush_bytes = 0;
             }
         }
 
@@ -144,22 +149,30 @@ impl PortData {
             String::from_utf8_lossy(data).into_owned()
         };
 
-        // Write to persistent file writer with proper error logging
+        // Write to persistent file writer with proper error logging.
+        // Flush is threshold-based; close/error paths still force a flush.
         if let Some(writer) = &mut self.file_writer {
             if let Err(e) = writer.write_all(line.as_bytes()) {
                 warn!("Failed to write to source file: {e}");
             }
-            if let Err(e) = writer.flush() {
-                warn!("Failed to flush source file writer: {e}");
+            self.pending_flush_bytes += line.len();
+            if self.pending_flush_bytes >= LOG_FLUSH_BYTE_THRESHOLD {
+                if let Err(e) = writer.flush() {
+                    warn!("Failed to flush source file writer: {e}");
+                } else {
+                    self.pending_flush_bytes = 0;
+                }
             }
         }
 
         // Push to memory display buffer and update cached text
-        self.display_buffer.push_back(line.clone());
-        self.display_text.push_str(&line);
+        let display_line = sanitize_display_text(&line);
+        self.display_buffer.push_back(display_line.clone());
+        self.display_text.push_str(&display_line);
+        self.display_revision = self.display_revision.wrapping_add(1);
 
         // Trim buffer if it exceeds the maximum size
-        while self.display_buffer.len() > 5000 {
+        while self.display_buffer.len() > DISPLAY_BUFFER_LIMIT {
             if let Some(removed) = self.display_buffer.pop_front() {
                 // Remove the same content from the front of the cached text
                 let remove_len = removed.len();
@@ -179,10 +192,29 @@ impl PortData {
         self.display_text.as_bytes().to_vec()
     }
 
+    /// Borrows the current display text without copying.
+    #[must_use]
+    pub fn display_text(&self) -> &str {
+        &self.display_text
+    }
+
+    /// Returns the current display text revision for external render caches.
+    #[must_use]
+    pub const fn display_revision(&self) -> u64 {
+        self.display_revision
+    }
+
+    /// Returns true when the current display text is empty.
+    #[must_use]
+    pub fn is_display_empty(&self) -> bool {
+        self.display_text.is_empty()
+    }
+
     /// Clears the in-memory display buffer and cached text for the current log view.
     pub fn clear_display_buffer(&mut self) {
         self.display_buffer.clear();
         self.display_text.clear();
+        self.display_revision = self.display_revision.wrapping_add(1);
     }
 
     /// Flushes the persistent file writer.
@@ -192,6 +224,7 @@ impl PortData {
         {
             warn!("Failed to flush file writer: {e}");
         }
+        self.pending_flush_bytes = 0;
     }
 
     /// Reads a specific source file by index.
@@ -397,5 +430,98 @@ impl PortData {
     /// Clears the UTF-8 buffer.
     pub fn clear_utf8_buffer(&mut self) {
         self.utf8_buffer.clear();
+    }
+}
+
+fn source_log_path(name: &str) -> String {
+    format!("{LOG_DIR}/{}", sanitize_log_file_name(name))
+}
+
+fn sanitize_log_file_name(name: &str) -> String {
+    let trimmed = name.trim();
+    let without_log_prefix = trimmed
+        .strip_prefix("logs/")
+        .or_else(|| trimmed.strip_prefix("logs\\"))
+        .unwrap_or(trimmed);
+
+    let sanitized = without_log_prefix
+        .trim_start_matches(['/', '\\'])
+        .replace(['/', '\\'], "_")
+        .replace("..", "")
+        .trim()
+        .to_string();
+
+    if sanitized.is_empty() {
+        FALLBACK_LOG_FILE.to_string()
+    } else {
+        sanitized
+    }
+}
+
+fn sanitize_display_text(text: &str) -> String {
+    text.chars()
+        .filter(|ch| !matches!(ch, '\0' | '\r'))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_log_path_prefixes_logs_once() {
+        assert_eq!(
+            source_log_path("COM1_20260101.txt"),
+            "logs/COM1_20260101.txt"
+        );
+        assert_eq!(
+            source_log_path("logs/COM1_20260101.txt"),
+            "logs/COM1_20260101.txt"
+        );
+    }
+
+    #[test]
+    fn source_log_path_sanitizes_port_like_paths() {
+        assert_eq!(
+            source_log_path("/dev/ttyUSB0_20260101.txt"),
+            "logs/dev_ttyUSB0_20260101.txt"
+        );
+        assert_eq!(
+            source_log_path("..\\nested/evil.txt"),
+            "logs/_nested_evil.txt"
+        );
+    }
+
+    #[test]
+    fn source_log_path_uses_fallback_for_empty_names() {
+        assert_eq!(source_log_path(".."), "logs/serial_log.txt");
+        assert_eq!(source_log_path("   "), "logs/serial_log.txt");
+    }
+
+    #[test]
+    fn display_text_is_sanitized_at_append_time() {
+        let mut data = PortData::new();
+
+        data.write_source_file(b"abc\0\r\n\x1b[31mred\x1b[0m", DataSource::Read);
+
+        assert_eq!(data.display_text(), "abc\n\x1b[31mred\x1b[0m");
+        assert_eq!(
+            data.read_current_source_file_bytes(),
+            b"abc\n\x1b[31mred\x1b[0m"
+        );
+    }
+
+    #[test]
+    fn display_revision_changes_on_append_and_clear() {
+        let mut data = PortData::new();
+        let initial_revision = data.display_revision();
+
+        data.write_source_file(b"hello", DataSource::Read);
+        let appended_revision = data.display_revision();
+        assert_ne!(initial_revision, appended_revision);
+
+        data.clear_display_buffer();
+        assert_ne!(appended_revision, data.display_revision());
+        assert!(data.is_display_empty());
     }
 }

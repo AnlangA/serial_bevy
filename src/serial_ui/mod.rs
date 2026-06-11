@@ -22,7 +22,7 @@ use global_llm::{
     GlobalLlmResponse, GlobalLlmState, process_global_llm_requests, receive_global_llm_responses,
 };
 use input::{history_data_checkout, send_cache_data};
-use layout::serial_ui;
+use layout::{SerialOutputCache, serial_ui};
 use ui::{MarkdownViewerCache, draw_serial_context_ui};
 
 pub use config::PanelWidths;
@@ -40,6 +40,7 @@ impl Plugin for SerialUiPlugin {
             .insert_resource(ClearColor(Color::srgb(0.96875, 0.96875, 0.96875)))
             .insert_resource(Selected::default())
             .insert_resource(MarkdownViewerCache::default())
+            .insert_resource(SerialOutputCache::default())
             .insert_resource(GlobalLlmState::default())
             .insert_resource(GlobalLlmResponse::init())
             .add_systems(Startup, (setup_camera_system, init_panel_widths))
