@@ -1,57 +1,152 @@
 # Serial Bevy
 
-Serial Bevy is a cross-platform serial monitor built with Rust, Bevy, and egui. It provides automatic port discovery, configurable serial parameters, UTF-8 and hexadecimal I/O, command history, and persistent session logs.
+[中文版](README_CN.md) | English
+
+A modern serial port communication tool built with the Bevy game engine, providing an intuitive GUI for serial port operations.
 
 ## Features
 
-- Discovers serial ports without blocking the UI.
-- Configures baud rate, data bits, stop bits, parity, and flow control.
-- Sends and receives UTF-8 text or hexadecimal bytes.
-- Optionally appends an LF byte to each submitted command.
-- Preserves split UTF-8 code points across serial reads.
-- Writes complete session logs with optional timestamps and receive-burst separators. It prefers `logs/` in the working directory, then beside the executable, and finally uses the system temporary directory.
-- Keeps only the latest 1 MiB of log text in the UI, so long sessions remain responsive.
-- Bounds command input and pending sends, reporting backpressure without discarding the editor contents.
-- Supports input history with the Up and Down arrow keys.
-- Persists the resizable side-panel width in the platform user-config directory, with working-directory, executable-directory, and temporary-directory fallbacks.
+- **Automatic Port Discovery**: Automatically detects and lists available serial ports
+- **Full Serial Configuration**:
+  - Configurable baud rate (4800 - 2000000 bps)
+  - Data bits (5, 6, 7, 8)
+  - Stop bits (1, 2)
+  - Parity (None, Odd, Even)
+  - Flow control (None, Software, Hardware)
+  - Adjustable timeout settings
+- **Multiple Data Encodings**: Support for Hex and UTF-8 data formats
+- **Command History**: Navigate previous commands using arrow keys (↑/↓)
+- **Data Logging**: Automatic timestamped logging of all communications
+- **LLM Integration**: Optional AI assistant features for data analysis
+- **Resizable Panels**: Customizable UI layout with persistent panel widths
 
-## Build and run
+## Installation
 
-Install Rust 1.95 or newer, then run:
+### Prerequisites
 
-```sh
+- Rust 1.70 or later
+- Cargo package manager
+
+### Build from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/AnlangA/serial_bevy.git
+cd serial_bevy
+
+# Build the project
+cargo build --release
+
+# Run the application
 cargo run --release
 ```
 
-Linux builds require the development packages for udev, Wayland, and xkbcommon. On Ubuntu or Debian:
-
-```sh
-sudo apt-get install libudev-dev libwayland-dev libxkbcommon-dev pkg-config
-```
-
-The application loads `assets/fonts/STSong.ttf` at runtime, so keep the `assets` directory beside the executable when distributing it.
-
 ## Usage
 
-1. Select a detected port in the left panel and configure it while closed.
-2. Click **Open**. A new log file is created for that session.
-3. Choose UTF-8 or Hexadecimal input, enter a command, then press Enter or click **Send**.
-4. Enable **Append LF** when the target expects a trailing `0A` byte.
-5. Set **Log Timeout** to insert a blank separator when receive bursts are farther apart than the chosen number of milliseconds. Set it to `0` to disable separators.
+### Opening a Serial Port
 
-Hex input accepts whitespace, `_`, `,`, `:`, and `-` separators, plus optional `0x` prefixes. Invalid tokens are rejected with a visible error instead of being silently altered. An odd total number of hexadecimal digits is padded with a leading zero.
+1. Launch the application
+2. Select a port from the left panel
+3. Configure the port settings (baud rate, data bits, etc.)
+4. Click "Open" to establish connection
 
-## Quality checks
+### Sending Data
 
-```sh
-cargo fmt --all -- --check
-cargo +1.95.0 check --locked --all-targets
-cargo clippy --locked --all-targets --all-features -- -D warnings
-cargo test --locked --all-targets
-RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps
-cargo audit
+1. Select the data type (Hex or UTF-8)
+2. Type your message in the input area
+3. Click `Send` or press Enter to send
+4. Use "With LF"/"No LF" button to toggle line feed
+
+### Viewing Logs
+
+All communications are automatically logged to the `logs/` directory with timestamps. The current session's data is displayed in the central panel.
+
+### LLM Features
+
+Click "Enable LLM" to access AI-powered features in the right sidebar (when enabled), then use the input area's `Send` button to submit prompts.
+
+## Configuration
+
+Port settings can be adjusted in the left panel:
+- **Baud Rate**: Communication speed
+- **Data Bits**: Number of data bits per character
+- **Stop Bits**: Number of stop bits
+- **Parity**: Error checking method
+- **Flow Ctrl**: Flow control mechanism
+
+Panel widths and shared LLM settings are automatically saved to `config/app_memory.ron` and restored on next launch.
+
+## Project Structure
+
 ```
+serial_bevy/
+├── src/
+│   ├── main.rs           # Application entry point
+│   ├── lib.rs            # Library root
+│   ├── error.rs          # Error handling
+│   ├── serial/           # Serial port logic
+│   │   ├── mod.rs
+│   │   ├── port.rs       # Port management
+│   │   ├── io.rs         # Async port I/O systems
+│   │   ├── discovery.rs  # Port discovery runtime
+│   │   └── ...           # Data, state, encoding, LLM helpers
+│   ├── serial_ui/        # User interface
+│   │   ├── mod.rs        # UI plugin wiring
+│   │   ├── layout.rs     # Main egui layout composition
+│   │   ├── config.rs     # Persisted UI settings
+│   │   ├── global_llm.rs # Standalone LLM state/systems
+│   │   ├── input.rs      # Input/history systems
+│   │   └── ui.rs         # Reusable UI components
+│   └── fonts/            # Font configuration
+├── assets/
+│   ├── fonts/            # Font files
+│   └── images/           # Image assets
+└── logs/                 # Auto-generated log files
+```
+
+## Dependencies
+
+- **bevy**: Game engine for UI and application framework
+- **bevy_egui**: Immediate mode GUI integration
+- **tokio**: Async runtime
+- **tokio-serial**: Serial port communication
+- **chrono**: Timestamp generation for logging
+- **zai-rs**: LLM integration (optional)
+
+## Development
+
+### Running Tests
+
+```bash
+cargo test
+```
+
+### Linting
+
+```bash
+cargo clippy
+```
+
+### Building for Release
+
+```bash
+cargo build --release
+```
+
+The optimized binary will be in `target/release/`.
 
 ## License
 
-Licensed under the MIT License. See [LICENSE](LICENSE).
+MIT
+
+## Author
+
+AnlangA
+
+## Repository
+
+https://github.com/AnlangA/serial_bevy
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues and pull requests.

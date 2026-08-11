@@ -161,7 +161,7 @@ impl EguiFontPlugin {
         for config in &font_configs.fonts {
             match load_font_bytes(&config.path) {
                 Ok(bytes) => {
-                    info!(
+                    debug!(
                         "Loaded font '{}' from: {}",
                         config.name,
                         config.path.display()
@@ -210,7 +210,7 @@ impl EguiFontPlugin {
 
         commands.insert_resource(EguiFontConfig { fonts, theme });
 
-        info!(
+        debug!(
             "Font configuration prepared with {} fonts",
             font_configs.fonts.len()
         );
@@ -230,7 +230,7 @@ impl EguiFontPlugin {
             ctx.set_fonts(font_config.fonts.clone());
             ctx.set_theme(font_config.theme);
             *has_applied = true;
-            info!("Fonts and theme applied successfully");
+            debug!("Fonts and theme applied successfully");
         }
     }
 }
