@@ -62,7 +62,7 @@ egui_commonmark = { version = "0.22.0", default-features = false, features = ["p
 zai-rs = { version = "=0.1.13", git = "https://github.com/AnlangA/zai-rs", rev = "d53c972f925af0ff0b0888024016cef6777cd666" }
 
 [dev-dependencies]
-mockall = "0.13"
+mockall = "0.15"
 
 [target.'cfg(unix)'.dev-dependencies]
 nix = { version = "0.31", features = ["term"] }
