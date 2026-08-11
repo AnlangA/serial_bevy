@@ -56,7 +56,7 @@ ron = "0.8"
 
 # ANSI color and Markdown rendering
 egui_sgr = "0.1"
-egui_commonmark = { version = "0.22.0", default-features = false, features = ["pulldown_cmark", "better_syntax_highlighting"] }
+egui_commonmark = { version = "0.25.0", default-features = false, features = ["pulldown_cmark", "better_syntax_highlighting"] }
 
 # AI integration
 zai-rs = { version = "=0.1.13", git = "https://github.com/AnlangA/zai-rs", rev = "d53c972f925af0ff0b0888024016cef6777cd666" }
