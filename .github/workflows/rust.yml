@@ -40,7 +40,7 @@ jobs:
           sudo apt-get install -y libudev-dev pkg-config libwayland-dev libxkbcommon-dev
 
       - name: Install Rust 1.95
-        uses: dtolnay/rust-toolchain@1.95.0
+        uses: dtolnay/rust-toolchain@1.100.0
 
       - name: Check declared MSRV
         run: cargo check --locked --all-targets
