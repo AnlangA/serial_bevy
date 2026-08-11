@@ -12,18 +12,68 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  security-audit:
+    name: Dependency Security Audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Audit Rust dependencies
+        uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  msrv:
+    name: Minimum Supported Rust (1.95)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev pkg-config libwayland-dev libxkbcommon-dev
+
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Check declared MSRV
+        run: cargo check --locked --all-targets
+
+  platform-check:
+    name: Platform Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check all targets
+        run: cargo check --locked --all-targets
+
   # Regular CI checks - runs on every push and PR
   ci:
     name: Continuous Integration
     runs-on: ubuntu-latest
     if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev pkg-config libwayland-dev libxkbcommon-dev
+          sudo apt-get install -y libudev-dev pkg-config libwayland-dev libxkbcommon-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -31,7 +81,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -45,29 +95,53 @@ jobs:
         run: cargo fmt --check
 
       - name: Run clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo test --release
+        run: cargo test --locked --all-targets
+
+      - name: Build documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --no-deps
+
+      - name: Verify Cargo package
+        run: cargo package --locked
+
+  validate-release:
+    name: Validate Release Metadata
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Match tag to crate version
+        run: |
+          crate_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          if [ "v${crate_version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match Cargo version v${crate_version}."
+            exit 1
+          fi
 
   # Build and release when a tag is pushed
   build-linux:
     name: Build Release (Linux)
+    needs: validate-release
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev pkg-config libwayland-dev libxkbcommon-dev
+          sudo apt-get install -y libudev-dev pkg-config libwayland-dev libxkbcommon-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -78,31 +152,39 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build
-        run: cargo build --release
+        run: cargo build --locked --release
 
       - name: Run tests
-        run: cargo test --release
+        run: cargo test --locked --all-targets
+
+      - name: Stage distribution
+        run: |
+          mkdir -p dist/assets/fonts
+          cp target/release/serial_bevy dist/
+          cp assets/fonts/STSong.ttf dist/assets/fonts/
+          cp README.md LICENSE CHANGELOG.md dist/
 
       - name: Upload Linux binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: serial_bevy-linux-x86_64
-          path: target/release/serial_bevy
+          path: dist/
           if-no-files-found: error
 
   # Build on Windows when a tag is pushed
   build-windows:
     name: Build Release (Windows)
+    needs: validate-release
     runs-on: windows-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -113,16 +195,24 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build
-        run: cargo build --release
+        run: cargo build --locked --release
 
       - name: Run tests
-        run: cargo test --release
+        run: cargo test --locked --all-targets
+
+      - name: Stage distribution
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/assets/fonts
+          Copy-Item target/release/serial_bevy.exe dist/
+          Copy-Item assets/fonts/STSong.ttf dist/assets/fonts/
+          Copy-Item README.md, LICENSE, CHANGELOG.md dist/
 
       - name: Upload Windows binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: serial_bevy-windows-x86_64
-          path: target/release/serial_bevy.exe
+          path: dist/
           if-no-files-found: error
 
   # Create release when a tag is pushed
@@ -134,16 +224,16 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download Linux artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: serial_bevy-linux-x86_64
           path: artifacts/linux
 
       - name: Download Windows artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: serial_bevy-windows-x86_64
           path: artifacts/windows
@@ -151,8 +241,8 @@ jobs:
       - name: Prepare release assets
         run: |
           chmod +x artifacts/linux/serial_bevy
-          cd artifacts/linux && zip -r ../../serial_bevy-linux-x86_64.zip serial_bevy && cd ../..
-          cd artifacts/windows && zip -r ../../serial_bevy-windows-x86_64.zip serial_bevy.exe && cd ../..
+          cd artifacts/linux && zip -r ../../serial_bevy-linux-x86_64.zip serial_bevy assets README.md LICENSE CHANGELOG.md && cd ../..
+          cd artifacts/windows && zip -r ../../serial_bevy-windows-x86_64.zip serial_bevy.exe assets README.md LICENSE CHANGELOG.md && cd ../..
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

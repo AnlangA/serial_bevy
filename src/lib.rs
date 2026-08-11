@@ -13,7 +13,7 @@
 //!   Tokio async runtime.
 //! - **Data Encoding**: Support for Hex and UTF-8 data encoding/decoding.
 //! - **History Management**: Command history with navigation support.
-//! - **AI Integration**: Optional LLM integration for intelligent assistance.
+//! - **Bounded Live Logs**: Complete disk logs with a memory-bounded UI view.
 //!
 //! ## Architecture
 //!
@@ -22,8 +22,6 @@
 //! - [`serial`]: Core serial port communication functionality
 //! - [`serial_ui`]: User interface components for serial communication
 //! - [`error`]: Custom error types for the application
-
-#![allow(clippy::mut_mutex_lock)]
 
 pub mod error;
 pub mod fonts;

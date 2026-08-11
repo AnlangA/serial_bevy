@@ -1,2 +1,3 @@
-/target
-*.txt
+/target/
+/logs/
+/panel_widths.txt

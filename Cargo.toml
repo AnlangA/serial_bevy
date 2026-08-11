@@ -1,39 +1,56 @@
 [package]
 name = "serial_bevy"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
+rust-version = "1.95"
 description = "A serial port communication tool built with Bevy game engine"
 license = "MIT"
 authors = ["AnlangA"]
 repository = "https://github.com/AnlangA/serial_bevy"
+readme = "README.md"
 keywords = ["serial", "bevy", "gui", "communication"]
 categories = ["gui", "hardware-support"]
 
 [dependencies]
-# Bevy game engine and UI
-bevy = { version = "0.17"}
-bevy_egui = "0.38"
+# Bevy game engine and UI. Keep the feature set focused on an egui desktop app;
+# Bevy's defaults also pull in unrelated 3D, audio, gamepad, and asset formats.
+bevy = { version = "0.19", default-features = false, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_camera",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_image",
+    "bevy_log",
+    "bevy_render",
+    "bevy_shader",
+    "bevy_window",
+    "bevy_winit",
+    "multi_threaded",
+    "wayland",
+    "x11",
+] }
+bevy_egui = { version = "0.41.1", default-features = false, features = [
+    "default_fonts",
+    "manage_clipboard",
+    "render",
+] }
 
 # Async runtime and serial communication
-tokio = { version = "1.48", features = ["full"] }
-tokio-serial = "5.4"
+tokio = { version = "1.53", features = ["io-util", "macros", "rt-multi-thread", "sync", "time"] }
+tokio-serial = "5.5"
 
 # Logging
-env_logger = "0.11"
 log = "0.4"
 
 # Utilities
 hex = "0.4"
 chrono = "0.4"
-regex = "1.12"
-thiserror = "1.0"
+thiserror = "2.0"
 
-# AI integration
-zhipuai-rs = "0.2"
-
-[dev-dependencies]
-# Testing utilities
-mockall = "0.13"
+[target.'cfg(unix)'.dev-dependencies]
+nix = { version = "0.31", features = ["term"] }
 
 [profile.release]
 opt-level = 3
@@ -49,4 +66,3 @@ unsafe_code = "deny"
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }
-mut_mutex_lock = "allow"

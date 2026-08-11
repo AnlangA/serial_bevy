@@ -6,25 +6,25 @@ use super::port::PortChannelData;
 use bevy::prelude::*;
 use tokio::sync::broadcast;
 
-/// Channel resource for communication between the main app and serial port threads.
+/// Channel resource for publishing serial-port discovery snapshots.
 ///
 /// This resource manages bidirectional communication using broadcast channels.
 #[derive(Resource)]
 pub struct SerialNameChannel {
-    /// Sender for messages from the world to the serial thread.
-    pub tx_world2_serial: broadcast::Sender<PortChannelData>,
-    /// Receiver for messages from the serial thread to the world.
-    pub rx_serial2_world: broadcast::Receiver<PortChannelData>,
+    /// Discovery task sender.
+    pub tx_discovery: broadcast::Sender<PortChannelData>,
+    /// ECS receiver for discovery updates.
+    pub rx_discovery: broadcast::Receiver<PortChannelData>,
 }
 
 impl SerialNameChannel {
-    /// Initializes the serial name channel with a buffer size of 100.
+    /// Initializes the serial name channel with its bounded discovery buffer.
     #[must_use]
     pub fn init() -> Self {
-        let (tx_world2_serial, rx_serial2_world) = broadcast::channel(100);
+        let (tx_discovery, rx_discovery) = broadcast::channel(16);
         Self {
-            tx_world2_serial,
-            rx_serial2_world,
+            tx_discovery,
+            rx_discovery,
         }
     }
 }
@@ -43,12 +43,12 @@ mod tests {
     fn test_serial_name_channel_creation() {
         let channel = SerialNameChannel::init();
         // Verify that channels are created properly by checking sender capacity
-        assert!(channel.tx_world2_serial.receiver_count() >= 1);
+        assert!(channel.tx_discovery.receiver_count() >= 1);
     }
 
     #[test]
     fn test_serial_name_channel_default() {
         let channel = SerialNameChannel::default();
-        assert!(channel.tx_world2_serial.receiver_count() >= 1);
+        assert!(channel.tx_discovery.receiver_count() >= 1);
     }
 }
