@@ -50,7 +50,7 @@ pub struct AiResponse {
 #[derive(Resource)]
 pub struct AiChannel {
     /// Sender for AI responses from async tasks back to the Bevy world.
-    pub tx: std::sync::Mutex<std::sync::mpsc::Sender<AiResponse>>,
+    pub tx: std::sync::Mutex<std::sync::mpsc::SyncSender<AiResponse>>,
     /// Receiver for AI responses in Bevy systems.
     pub rx: std::sync::Mutex<std::sync::mpsc::Receiver<AiResponse>>,
 }
@@ -59,7 +59,7 @@ impl AiChannel {
     /// Initializes the AI channel.
     #[must_use]
     pub fn init() -> Self {
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = std::sync::mpsc::sync_channel(64);
         Self {
             tx: std::sync::Mutex::new(tx),
             rx: std::sync::Mutex::new(rx),

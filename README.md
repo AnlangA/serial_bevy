@@ -7,7 +7,7 @@ A modern serial port communication tool built with the Bevy game engine, providi
 ## Features
 
 - **Automatic Port Discovery**: Automatically detects and lists available serial ports
-- **Full Serial Configuration**: 
+- **Full Serial Configuration**:
   - Configurable baud rate (4800 - 2000000 bps)
   - Data bits (5, 6, 7, 8)
   - Stop bits (1, 2)

@@ -3,7 +3,7 @@
 //! This module provides serial port types, settings, and state management.
 
 use log::{debug, error};
-use tokio::sync::broadcast;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio_serial::SerialPortBuilderExt;
@@ -39,9 +39,9 @@ pub struct Serial {
     /// Handle to the communication thread.
     thread_handle: Option<JoinHandle<Result<(), SerialBevyError>>>,
     /// Transmit channel for sending commands to the port thread.
-    tx_channel: Option<broadcast::Sender<PortChannelData>>,
+    tx_channel: Option<mpsc::Sender<PortChannelData>>,
     /// Receive channel for receiving data from the port thread.
-    rx_channel: Option<broadcast::Receiver<PortChannelData>>,
+    rx_channel: Option<mpsc::Receiver<PortChannelData>>,
     /// LLM configuration.
     llm: LlmConfig,
 }
@@ -95,12 +95,12 @@ impl Serial {
     }
 
     /// Gets a mutable reference to the transmit channel.
-    pub const fn tx_channel(&mut self) -> &mut Option<broadcast::Sender<PortChannelData>> {
+    pub const fn tx_channel(&mut self) -> &mut Option<mpsc::Sender<PortChannelData>> {
         &mut self.tx_channel
     }
 
     /// Gets a mutable reference to the receive channel.
-    pub const fn rx_channel(&mut self) -> &mut Option<broadcast::Receiver<PortChannelData>> {
+    pub const fn rx_channel(&mut self) -> &mut Option<mpsc::Receiver<PortChannelData>> {
         &mut self.rx_channel
     }
 

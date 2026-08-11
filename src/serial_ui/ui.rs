@@ -208,7 +208,7 @@ pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, selected:
             // Clone settings before borrowing tx_channel to avoid borrow conflict
             let settings = serial.set.clone();
             if let Some(tx) = serial.tx_channel() {
-                match tx.send(PortChannelData::PortOpen(settings)) {
+                match tx.try_send(PortChannelData::PortOpen(settings)) {
                     Ok(_) => {
                         debug!("Sent open port message");
                     }
@@ -226,7 +226,7 @@ pub fn open_ui(ui: &mut egui::Ui, serial: &mut MutexGuard<'_, Serial>, selected:
         let port_name = serial.set.port_name.clone();
 
         if let Some(tx) = serial.tx_channel() {
-            match tx.send(PortChannelData::PortClose(port_name)) {
+            match tx.try_send(PortChannelData::PortClose(port_name)) {
                 Ok(_) => {
                     debug!("Sent close port message");
                 }

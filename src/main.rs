@@ -9,7 +9,7 @@
 //! - Configurable baud rate, data bits, stop bits, parity, and flow control
 //! - Hex and UTF-8 data encoding
 //! - Command history with arrow key navigation
-//! - Optional LLM integration
+//! - Persistent, timestamped session logs
 
 use bevy::prelude::*;
 use serial_bevy::fonts::FontConfig;
@@ -36,10 +36,10 @@ fn main() {
                 .build(),
         )
         .add_plugins(SerialPlugin)
+        .add_plugins(SerialUiPlugin)
         .add_plugins(
             EguiFontPlugin::default()
                 .with_font_config(FontConfig::new("Song", "assets/fonts/STSong.ttf").primary()),
         )
-        .add_plugins(SerialUiPlugin)
         .run();
 }

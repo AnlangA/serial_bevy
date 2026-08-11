@@ -1,3 +1,6 @@
-/target
+/target/
+/logs/
+/panel_widths.txt
+/config/app_memory.ron
 *.txt
-config/app_memory.ron
+!LICENSE.txt

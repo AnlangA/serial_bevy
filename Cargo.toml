@@ -1,23 +1,43 @@
 [package]
 name = "serial_bevy"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
+rust-version = "1.95"
 description = "A serial port communication tool built with Bevy game engine"
 license = "MIT"
 authors = ["AnlangA"]
 repository = "https://github.com/AnlangA/serial_bevy"
+readme = "README.md"
 keywords = ["serial", "bevy", "gui", "communication"]
 categories = ["gui", "hardware-support"]
 
 [dependencies]
-# Bevy game engine and UI
-bevy = { version = "0.18"}
+# This is an egui desktop app; omit Bevy's game, audio, gamepad, scene, and
+# asset-format defaults to avoid unused native dependencies and reduce builds.
+bevy = { version = "0.18", default-features = false, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_camera",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_image",
+    "bevy_log",
+    "bevy_render",
+    "bevy_shader",
+    "bevy_window",
+    "bevy_winit",
+    "multi_threaded",
+    "reflect_auto_register",
+    "wayland",
+    "x11",
+] }
 bevy_egui = "0.39"
 egui = { version = "0.33", features = ["persistence"] }
 
 # Async runtime and serial communication
-tokio = { version = "1.48", features = ["full"] }
-tokio-serial = "5.4.5"
+tokio = { version = "1.53", features = ["full"] }
+tokio-serial = "5.5"
 
 # Logging
 env_logger = "0.11"
@@ -27,23 +47,25 @@ log = "0.4"
 hex = "0.4"
 chrono = "0.4"
 regex = "1.12"
-thiserror = "1.0"
+thiserror = "2.0"
 encoding_rs = "0.8"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 ron = "0.8"
 
-# ANSI color parsing for egui
+# ANSI color and Markdown rendering
 egui_sgr = "0.1"
 egui_commonmark = { version = "0.22.0", default-features = false, features = ["pulldown_cmark", "better_syntax_highlighting"] }
 
 # AI integration
-zai-rs = { git = "https://github.com/AnlangA/zai-rs" }
+zai-rs = { version = "=0.1.13", git = "https://github.com/AnlangA/zai-rs", rev = "d53c972f925af0ff0b0888024016cef6777cd666" }
 
 [dev-dependencies]
-# Testing utilities
 mockall = "0.13"
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = { version = "0.31", features = ["term"] }
 
 [profile.release]
 opt-level = 3

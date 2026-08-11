@@ -5,8 +5,9 @@
 
 use bevy::prelude::*;
 use log::{debug, error, info};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::broadcast;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 
 use super::Serials;
 use super::data_types::DataType;
@@ -19,6 +20,8 @@ use crate::error::SerialBevyError;
 
 // SerialStream comes from tokio_serial, re-exported via super::port
 use tokio_serial::SerialStream;
+
+const SERIAL_CHANNEL_CAPACITY: usize = 1024;
 
 /// Creates threads for serial ports that don't have one.
 ///
@@ -44,15 +47,14 @@ pub fn create_serial_port_threads(mut serials: Query<&mut Serials>, runtime: Res
 
 /// Sets up the serial port communication thread.
 ///
-/// Creates broadcast channels for communication between the main ECS thread
-/// and the async port worker, then spawns an async task that:
+/// Creates bounded point-to-point channels between ECS and one async worker.
+/// The worker:
 /// 1. Waits for a port open command
 /// 2. Splits the serial stream into read/write halves
-/// 3. Spawns dedicated read and write handlers
+/// 3. Owns both read and write halves in one cancellable session
 fn setup_serial_thread(serial: &mut Serial, runtime: &Runtime) {
-    let (tx, mut rx) = broadcast::channel(100);
-    let (tx1, rx1) = broadcast::channel(100);
-    let rx_shutdown = tx.subscribe();
+    let (tx, mut rx) = mpsc::channel(SERIAL_CHANNEL_CAPACITY);
+    let (tx1, rx1) = mpsc::channel(SERIAL_CHANNEL_CAPACITY);
 
     *serial.tx_channel() = Some(tx);
     *serial.rx_channel() = Some(rx1);
@@ -69,23 +71,12 @@ fn setup_serial_thread(serial: &mut Serial, runtime: &Runtime) {
         };
 
         info!("Opened serial port: {port_name}");
-        if let Err(e) = notify_port_ready(&tx1) {
+        if let Err(e) = tx1.send(PortChannelData::PortState(PortState::Ready)).await {
             return Err(SerialBevyError::channel(e.to_string()));
         }
 
         let (read, write) = tokio::io::split(port);
-        let mut read_handle = spawn_read_thread(read, tx1.clone(), rx_shutdown, &port_name);
-
-        tokio::select! {
-            _ = handle_write_thread(write, rx, tx1, &port_name) => {}
-            read_result = &mut read_handle => {
-                if let Err(e) = read_result {
-                    error!("Read task failed on {port_name}: {e}");
-                }
-            }
-        }
-
-        read_handle.abort();
+        run_serial_session(read, write, rx, tx1, &port_name).await;
         info!("Serial port thread exited: {port_name}");
         Ok(())
     });
@@ -98,128 +89,97 @@ fn setup_serial_thread(serial: &mut Serial, runtime: &Runtime) {
 ///
 /// Returns an open `SerialStream` once the user triggers a port open command.
 async fn wait_for_port_open(
-    rx: &mut broadcast::Receiver<PortChannelData>,
-    tx1: &broadcast::Sender<PortChannelData>,
+    rx: &mut mpsc::Receiver<PortChannelData>,
+    tx1: &mpsc::Sender<PortChannelData>,
 ) -> Result<SerialStream, SerialBevyError> {
     loop {
         match rx.recv().await {
-            Ok(PortChannelData::PortOpen(settings)) => {
+            Some(PortChannelData::PortOpen(settings)) => {
                 return match open_port(&settings).await {
                     Ok(port) => Ok(port),
                     Err(e) => {
-                        let _ = tx1.send(PortChannelData::PortError(PortRwData {
-                            data: format!("open port failed: {e}").into_bytes(),
-                        }));
+                        let _ = tx1
+                            .send(PortChannelData::PortError(PortRwData {
+                                data: format!("open port failed: {e}").into_bytes(),
+                            }))
+                            .await;
                         Err(e)
                     }
                 };
             }
-            Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
-            Err(broadcast::error::RecvError::Closed) => {
+            Some(_) => {}
+            None => {
                 return Err(SerialBevyError::channel("port command channel closed"));
             }
         }
     }
 }
 
-/// Notifies the main thread that the serial port is ready for communication.
-fn notify_port_ready(
-    tx1: &broadcast::Sender<PortChannelData>,
-) -> Result<(), broadcast::error::SendError<PortChannelData>> {
-    tx1.send(PortChannelData::PortState(PortState::Ready))?;
-    Ok(())
-}
-
-/// Spawns an async read thread that continuously reads data from the serial port.
-///
-/// Reads are performed in 1024-byte chunks and forwarded to the main thread
-/// via the broadcast channel. The loop exits on shutdown signal or error.
-fn spawn_read_thread(
-    mut read: tokio::io::ReadHalf<SerialStream>,
-    tx1_read: broadcast::Sender<PortChannelData>,
-    mut rx_shutdown: broadcast::Receiver<PortChannelData>,
+/// Runs one complete session so aborting the owner drops both stream halves.
+async fn run_serial_session<R, W>(
+    mut read: R,
+    mut write: W,
+    mut rx: mpsc::Receiver<PortChannelData>,
+    tx: mpsc::Sender<PortChannelData>,
     port_name: &str,
-) -> tokio::task::JoinHandle<()> {
-    let port_name = port_name.to_owned();
-    tokio::spawn(async move {
-        let mut buffer = [0u8; 1024];
-        loop {
-            tokio::select! {
-                result = rx_shutdown.recv() => {
-                    if let Ok(PortChannelData::PortClose(name)) = result {
-                        debug!("Closing serial port read thread: {name}");
-                        break;
-                    }
-                }
-                result = read.read(&mut buffer) => {
-                    match result {
-                        Ok(n) if n > 0 => {
-                            let data = PortRwData {
-                                data: buffer[..n].to_vec(),
-                            };
-                            if let Err(e) = tx1_read.send(PortChannelData::PortRead(data.clone())) {
-                                error!("Failed to send read data: {e}");
-                            } else {
-                                debug!("{} read: {:?}", port_name, data.data);
-                            }
-                        }
-                        Ok(_) => {
-                            let _ = tx1_read.send(PortChannelData::PortError(PortRwData {
-                                data: format!("{port_name} read returned zero bytes").into_bytes(),
-                            }));
-                            break;
-                        }
-                        Err(e) => {
-                            error!("Read error on {port_name}: {e}");
-                            let _ = tx1_read.send(PortChannelData::PortError(PortRwData {
-                                data: format!("{port_name} read error: {e}").into_bytes(),
-                            }));
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    })
-}
-
-/// Handles writing data to the serial port.
-///
-/// Listens on the command channel for write requests and port close commands.
-/// Writes data to the serial stream and forwards close/state messages back
-/// to the main thread.
-async fn handle_write_thread(
-    mut write: tokio::io::WriteHalf<SerialStream>,
-    mut rx: broadcast::Receiver<PortChannelData>,
-    tx1: broadcast::Sender<PortChannelData>,
-    port_name: &str,
-) {
+) where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let mut buffer = [0u8; 1024];
     loop {
-        match rx.recv().await {
-            Ok(data) => match data {
-                PortChannelData::PortWrite(data) => {
-                    debug!("{} write: {:?}", port_name, data.data);
-                    if let Err(e) = write.write_all(&data.data).await {
-                        error!("{port_name} write error: {e}");
-                        let _ = tx1.send(PortChannelData::PortError(PortRwData {
-                            data: format!("{port_name} write error: {e}").into_bytes(),
-                        }));
+        tokio::select! {
+            command = rx.recv() => {
+                match command {
+                    Some(PortChannelData::PortWrite(data)) => {
+                        debug!("{} write: {:?}", port_name, data.data);
+                        if let Err(e) = write.write_all(&data.data).await {
+                            send_task_error(&tx, format!("{port_name} write error: {e}")).await;
+                            break;
+                        }
+                    }
+                    Some(PortChannelData::PortClose(name)) => {
+                        debug!("Closing serial port session: {name}");
+                        let _ = tx.send(PortChannelData::PortState(PortState::Close)).await;
+                        break;
+                    }
+                    Some(_) => {}
+                    None => break,
+                }
+            }
+            result = read.read(&mut buffer) => {
+                match result {
+                    Ok(n) if n > 0 => {
+                        let data = PortRwData {
+                            data: buffer[..n].to_vec(),
+                        };
+                        if let Err(e) = tx.send(PortChannelData::PortRead(data.clone())).await {
+                            error!("Failed to send read data: {e}");
+                        } else {
+                            debug!("{} read: {:?}", port_name, data.data);
+                        }
+                    }
+                    Ok(_) => {
+                        send_task_error(&tx, format!("{port_name} read returned zero bytes")).await;
+                        break;
+                    }
+                    Err(e) => {
+                        error!("Read error on {port_name}: {e}");
+                        send_task_error(&tx, format!("{port_name} read error: {e}")).await;
                         break;
                     }
                 }
-                PortChannelData::PortClose(name) => {
-                    debug!("Closing serial port write thread: {name}");
-                    let _ = tx1.send(PortChannelData::PortState(PortState::Close));
-                    break;
-                }
-                _ => {}
-            },
-            Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                debug!("{port_name} write channel lagged by {skipped} messages");
             }
-            Err(broadcast::error::RecvError::Closed) => break,
         }
     }
+}
+
+async fn send_task_error(tx: &mpsc::Sender<PortChannelData>, message: String) {
+    let _ = tx
+        .send(PortChannelData::PortError(PortRwData {
+            data: message.into_bytes(),
+        }))
+        .await;
 }
 
 /// Sends data queued on each serial port's send buffer to the port's async thread.
@@ -261,9 +221,13 @@ pub fn send_serial_data(mut serials: Query<&mut Serials>) {
 
         if serial.is_open()
             && let Some(tx) = serial.tx_channel()
-            && let Err(e) = tx.send(PortChannelData::PortWrite(PortRwData { data: data_vec_u8 }))
+            && let Err(e) =
+                tx.try_send(PortChannelData::PortWrite(PortRwData { data: data_vec_u8 }))
         {
-            error!("Failed to send data: {e}");
+            match e {
+                TrySendError::Full(_) => error!("Serial send queue is full"),
+                TrySendError::Closed(_) => error!("Serial send queue is closed"),
+            }
         }
     }
 }
@@ -274,6 +238,7 @@ pub fn send_serial_data(mut serials: Query<&mut Serials>) {
 /// and error messages. Updates the port state and writes received/error data
 /// to the source file with appropriate source indicators.
 pub fn receive_serial_data(mut serials: Query<&mut Serials>) {
+    const MAX_MESSAGES_PER_PORT_PER_FRAME: usize = 256;
     let Ok(mut serials) = serials.single_mut() else {
         return;
     };
@@ -283,19 +248,15 @@ pub fn receive_serial_data(mut serials: Query<&mut Serials>) {
             continue;
         };
 
-        loop {
+        for _ in 0..MAX_MESSAGES_PER_PORT_PER_FRAME {
             let data = {
                 let Some(rx) = serial.rx_channel() else {
                     break;
                 };
                 match rx.try_recv() {
                     Ok(data) => data,
-                    Err(broadcast::error::TryRecvError::Empty) => break,
-                    Err(broadcast::error::TryRecvError::Lagged(skipped)) => {
-                        debug!("Receive channel lagged by {skipped} messages");
-                        continue;
-                    }
-                    Err(broadcast::error::TryRecvError::Closed) => {
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
                         serial.error();
                         break;
                     }
@@ -345,12 +306,12 @@ mod tests {
 
     #[test]
     fn receive_port_error_marks_serial_error_and_clears_pending_data() {
-        let (tx, rx) = broadcast::channel(4);
+        let (tx, rx) = mpsc::channel(4);
         let mut serial = Serial::new();
         serial.data().send_data("pending".to_string());
         *serial.rx_channel() = Some(rx);
 
-        tx.send(PortChannelData::PortError(PortRwData {
+        tx.try_send(PortChannelData::PortError(PortRwData {
             data: b"read error".to_vec(),
         }))
         .expect("send port error");

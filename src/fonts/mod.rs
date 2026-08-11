@@ -28,7 +28,38 @@
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPreUpdateSet, egui};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+fn load_font_bytes(path: &Path) -> Result<Vec<u8>, String> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(bytes),
+        Err(working_dir_error) if path.is_relative() => {
+            let executable = std::env::current_exe().map_err(|executable_error| {
+                format!(
+                    "{}; could not locate the executable for fallback lookup: {}",
+                    working_dir_error, executable_error
+                )
+            })?;
+            let Some(executable_dir) = executable.parent() else {
+                return Err(format!(
+                    "{}; executable path has no parent: {}",
+                    working_dir_error,
+                    executable.display()
+                ));
+            };
+            let packaged_path = executable_dir.join(path);
+            std::fs::read(&packaged_path).map_err(|packaged_error| {
+                format!(
+                    "{}; fallback '{}' also failed: {}",
+                    working_dir_error,
+                    packaged_path.display(),
+                    packaged_error
+                )
+            })
+        }
+        Err(error) => Err(error.to_string()),
+    }
+}
 
 /// Configuration for a single font
 #[derive(Debug, Clone)]
@@ -128,7 +159,7 @@ impl EguiFontPlugin {
 
         // Load fonts in the order they were added
         for config in &font_configs.fonts {
-            match std::fs::read(&config.path) {
+            match load_font_bytes(&config.path) {
                 Ok(bytes) => {
                     debug!(
                         "Loaded font '{}' from: {}",
