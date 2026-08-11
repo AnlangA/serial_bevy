@@ -48,7 +48,6 @@ pub async fn send_ai_chat(
     }
 
     let resp: ChatCompletionResponse = match model {
-        "glm-5.1" => glm_chat!(GLM5_1, first, key, chat_msgs, with_coding_plan),
         "glm-5" => glm_chat!(GLM5, first, key, chat_msgs, with_coding_plan),
         "glm-5-turbo" => glm_chat!(GLM5_turbo, first, key, chat_msgs, with_coding_plan),
         "glm-4.7" => glm_chat!(GLM4_7, first, key, chat_msgs, with_coding_plan),

@@ -4,7 +4,6 @@
 
 /// Available text models for AI chat.
 pub const TEXT_MODELS: &[(&str, &str)] = &[
-    ("glm-5.1", "GLM-5.1"),
     ("glm-5", "GLM-5"),
     ("glm-5-turbo", "GLM-5-Turbo"),
     ("glm-4.7", "GLM-4.7"),
@@ -137,7 +136,6 @@ mod tests {
     #[test]
     fn text_models_include_current_zai_rs_text_models() {
         for model in [
-            "glm-5.1",
             "glm-5",
             "glm-5-turbo",
             "glm-4.7",
