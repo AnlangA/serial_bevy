@@ -245,7 +245,7 @@ jobs:
           cd artifacts/windows && zip -r ../../serial_bevy-windows-x86_64.zip serial_bevy.exe assets README.md LICENSE CHANGELOG.md && cd ../..
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             serial_bevy-linux-x86_64.zip
