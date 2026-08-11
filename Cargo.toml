@@ -14,7 +14,7 @@ categories = ["gui", "hardware-support"]
 [dependencies]
 # This is an egui desktop app; omit Bevy's game, audio, gamepad, scene, and
 # asset-format defaults to avoid unused native dependencies and reduce builds.
-bevy = { version = "0.18", default-features = false, features = [
+bevy = { version = "0.19", default-features = false, features = [
     "std",
     "async_executor",
     "bevy_asset",
