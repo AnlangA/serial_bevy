@@ -52,7 +52,7 @@ encoding_rs = "0.8"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
-ron = "0.8"
+ron = "0.12"
 
 # ANSI color and Markdown rendering
 egui_sgr = "0.1"
