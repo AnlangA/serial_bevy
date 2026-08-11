@@ -32,7 +32,7 @@ bevy = { version = "0.18", default-features = false, features = [
     "wayland",
     "x11",
 ] }
-bevy_egui = "0.39"
+bevy_egui = "0.41"
 egui = { version = "0.33", features = ["persistence"] }
 
 # Async runtime and serial communication
